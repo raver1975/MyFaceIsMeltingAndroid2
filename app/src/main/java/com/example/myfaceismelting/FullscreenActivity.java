@@ -60,11 +60,22 @@ import android.view.*;
 import android.widget.FrameLayout;
 import androidx.core.app.ActivityCompat;
 import androidx.core.content.ContextCompat;
+import com.jabistudio.androidjhlabs.filter.PosterizeFilter;
+import com.jabistudio.androidjhlabs.filter.SwimFilter;
+import com.jabistudio.androidjhlabs.filter.util.AndroidUtils;
 import org.bytedeco.javacv.AndroidFrameConverter;
 import org.bytedeco.javacv.OpenCVFrameConverter;
-import org.bytedeco.opencv.opencv_core.IplImage;
 
+import org.bytedeco.opencv.opencv_core.IplImage;
+import org.bytedeco.opencv.opencv_core.Mat;
+import org.opencv.core.CvType;
+
+import java.io.ByteArrayOutputStream;
+import java.io.DataOutputStream;
 import java.io.IOException;
+import java.nio.ByteBuffer;
+import java.nio.IntBuffer;
+import java.util.Arrays;
 import java.util.List;
 
 import static org.bytedeco.opencv.global.opencv_core.*;
@@ -107,11 +118,7 @@ public class FullscreenActivity extends Activity {
 class FaceView extends View implements Camera.PreviewCallback {
 
     private IplImage image;
-    private IplImage yuvImage;
-    //	private Bitmap bitmap;
-    int[] _temp = null;
 
-    int EDGES_THRESHOLD = 70;
     int LAPLACIAN_FILTER_SIZE = 5;
     int MEDIAN_BLUR_FILTER_SIZE = 7;
     int repetitions = 7; // Repetitions for strong cartoon effect.
@@ -123,19 +130,35 @@ class FaceView extends View implements Camera.PreviewCallback {
     private IplImage edges;
     private IplImage temp;
     //	private IplImage colorImage1;
-    private IplImage gray1;
     private IplImage temp1;
+    SwimFilter sf = new SwimFilter();
+    SwimFilter sf1 = new SwimFilter();
+    PosterizeFilter glf = new PosterizeFilter();
+    private float t1;
+    private float t2;
+
     //    private IplImage temp1;
     AndroidFrameConverter converter = new AndroidFrameConverter();
     OpenCVFrameConverter openconverter = new OpenCVFrameConverter.ToIplImage();
+    AndroidFrameConverter androidFrameConverter = new AndroidFrameConverter();
+
 
     Paint paint = new Paint();
+    private int[] swim1Ints3;
+    private IplImage image1;
 
     public FaceView(FullscreenActivity context) throws IOException {
         super(context);
 
-        // Preload the opencv_objdetect module to work around a known bug.
-//		Loader.load(opencv_objdetect.class);
+        sf.setAmount(20f);
+        sf.setTurbulence(1f);
+        sf.setEdgeAction(sf.CLAMP);
+        sf1.setEdgeAction(sf1.CLAMP);
+        sf1.setAmount(30f);
+        sf1.setTurbulence(1f);
+        sf1.setScale(300);
+        sf1.setStretch(50);
+        glf.setNumLevels(100);
     }
 
     public void onPreviewFrame(final byte[] data, final Camera camera) {
@@ -144,6 +167,7 @@ class FaceView extends View implements Camera.PreviewCallback {
             processImage(data, size.width, size.height);
             camera.addCallbackBuffer(data);
         } catch (RuntimeException e) {
+            e.printStackTrace();
             // The camera has probably just been released, ignore.
         }
     }
@@ -151,17 +175,16 @@ class FaceView extends View implements Camera.PreviewCallback {
     protected void processImage(byte[] data, int width, int height) {
         // First, downsample our image and convert it into a grayscale IplImage
 
-		if (image == null || image.width() != width || image.height() != height) {
-			image = IplImage.create(width, height, IPL_DEPTH_8U, 3);
+        if (image == null || image.width() != width || image.height() != height) {
+            image = IplImage.create(width, height, IPL_DEPTH_8U, 3);
 ////			colorImage1 = IplImage.create(width, height, IPL_DEPTH_8U, 4);
 //			bitmap = Bitmap.createBitmap(colorImage.width(), colorImage.height(), Bitmap.Config.ARGB_8888);
 //			_temp = new int[(width * height)];
-			gray1 = IplImage.create(image.cvSize(), IPL_DEPTH_8U, 1);
-			gray = IplImage.create(image.cvSize(), IPL_DEPTH_8U, 1);
-			edges = IplImage.create(gray.cvSize(), gray.depth(), gray.nChannels());
-			temp = IplImage.create(image.cvSize(), image.depth(), image.nChannels());
-			temp1 = IplImage.create(image.cvSize(), image.depth(), image.nChannels());
-		}
+            gray = IplImage.create(image.cvSize(), IPL_DEPTH_8U, 1);
+            edges = IplImage.create(gray.cvSize(), gray.depth(), gray.nChannels());
+            temp = IplImage.create(image.cvSize(), image.depth(), image.nChannels());
+            temp1 = IplImage.create(image.cvSize(), image.depth(), image.nChannels());
+        }
 
 //		decodeYUV420SP(_temp, data, width, height);
 
@@ -191,6 +214,47 @@ class FaceView extends View implements Camera.PreviewCallback {
 //		}
 //        ((ByteBuffer) yuvImage.image[0].position(0)).put(data);
         image = openconverter.convertToIplImage(converter.convert(data, width, height));
+
+        ByteBuffer buffer = image.getByteBuffer();
+//        buffer.position(0);
+        int img_vec[] = new int[image.width() * image.height()];
+//
+        for (int i = 0; i < image.width(); i++) {
+            for (int j = 0; j < image.height(); j++) {
+//                int ind = i * image.widthStep() + j;
+//                img_vec[i*image.height()+j] = (buffer.get());
+//                img_vec[i * image.height() + j] = (buffer.get(ind) & 0xFF) | ((buffer.get(ind + 1) & 0xFF) << 8) | ((buffer.get(ind + 2) & 0xFF) << 16);
+                img_vec[i * image.height() + j] = 0xFF << 24 | ((buffer.get() & 0xFF)) << 16 | ((buffer.get() & 0xFF) << 8) | ((buffer.get() & 0xFF));
+//                img_vec[i * image.height() + j] = (0xff << 24) | ( 0xFF) | (( 0xFF) << 8) | (( 0xFF) << 16);
+//                System.out.println(i+"\t"+j+"\t"+img_vec[i * image.height() + j]);
+            }
+        }
+//        image.imageData().position(0);
+
+
+        int[] swim1Ints2 = sf.filter(img_vec, image.width(), image.height());
+        swim1Ints3 = sf1.filter(swim1Ints2, image.width(), image.height());
+        Bitmap bitmap1 = Bitmap.createBitmap(image.width(), image.height(), Bitmap.Config.ARGB_8888);
+        bitmap1.copyPixelsFromBuffer(IntBuffer.wrap(swim1Ints3));
+        image1 = openconverter.convertToIplImage(androidFrameConverter.convert(bitmap1));
+        cvCvtColor(image1, image, CV_RGBA2RGB);
+
+//        ((IntBuffer)image.getIntBuffer().position(0)).put(IntBuffer.wrap(swim1Ints3));
+
+//        Mat mat=new Mat(image.width(),image.height(), CvType.CV_64F);
+//        mat.
+//        mat.put(0,0,img_vec);
+//        image=new IplImage();
+
+//        ((ByteBuffer)image.getByteBuffer().position(0)).put(integersToBytes(swim1Ints3));
+//        ((IntBuffer)image.getIntBuffer().position(0)).put(swim1Ints3);
+//IplImage i2=new IplImage(swim1Ints3);
+//        image= mat.asIplImage();
+//        image.imageData().put(integersToBytes(img_vec));
+//        image=new IplImage(new Mat());
+
+//		int[] swimfilter1=converter.
+
 //        image = render(render(colorImage, sf), sf1);
         cvCvtColor(image, gray, CV_BGR2GRAY);
         cvSmooth(gray, gray, CV_MEDIAN, MEDIAN_BLUR_FILTER_SIZE, 0, 0, 0);
@@ -229,18 +293,18 @@ class FaceView extends View implements Camera.PreviewCallback {
 //			}
 //			cvNot(edges,edges);
 
+        System.out.println(image.cvSize() + "\t" + temp.cvSize());
+        System.out.println(image.nChannels() + "\t" + temp.nChannels());
+        System.out.println(image.depth() + "\t" + temp.depth());
+        temp = IplImage.create(image.cvSize(), image.depth(), image.nChannels());
         for (int i = 0; i < repetitions; i++) {
             cvSmooth(image, temp, CV_BILATERAL, ksize, 0, sigmaColor, sigmaSpace);
             cvSmooth(temp, image, CV_BILATERAL, ksize, 0, sigmaColor, sigmaSpace);
         }
-        temp = IplImage.create(image.cvSize(), image.depth(), image.nChannels());
         cvZero(temp);
-
-
-
         cvCopy(image, temp, edges);
-//        sf.setTime(t1 += .02f);
-//        sf1.setTime(t2 += .02f);
+        sf.setTime(t1 += .102f);
+        sf1.setTime(t2 += .102f);
 
 //		colorImage.getIntBuffer().put(_temp);
 //		colorImage.getByteBuffer().put(_temp);
@@ -270,16 +334,78 @@ class FaceView extends View implements Camera.PreviewCallback {
 //        cvCvtColor(temp, temp1, CV_BGR2BGRA);
         postInvalidate();
     }
-    public IplImage render(IplImage image) {
-//        BufferedImage bi = new BufferedImage(image.width(), image.height(), BufferedImage.TYPE_INT_ARGB);
-//        BufferedImage bi2 = new BufferedImage(image.width(), image.height(), BufferedImage.TYPE_INT_ARGB);
-//        bi.getGraphics().drawImage(converterjava2d.getBufferedImage(converter.convert(image)), 0, 0, null);
-//        rf.filter(bi, bi2);
-//        BufferedImage bi1 = new BufferedImage(image.width(), image.height(), BufferedImage.TYPE_3BYTE_BGR);
-//        bi1.getGraphics().drawImage(bi2, 0, 0, null);
-//        image =converter.convertToIplImage(converterjava2d.convert(bi1));
-        return image;
+
+    public int[] toArray(IntBuffer b) {
+        if (b.hasArray()) {
+            if (b.arrayOffset() == 0)
+                return b.array();
+
+            return Arrays.copyOfRange(b.array(), b.arrayOffset(), b.array().length);
+        }
+
+        b.rewind();
+        int[] foo = new int[b.remaining()];
+        b.get(foo);
+
+        return foo;
     }
+
+    public static ByteBuffer deepCopy(ByteBuffer orig) {
+        int pos = orig.position(), lim = orig.limit();
+        try {
+            orig.position(0).limit(orig.capacity()); // set range to entire buffer
+            ByteBuffer toReturn = deepCopyVisible(orig); // deep copy range
+            toReturn.position(pos).limit(lim); // set range to original
+            return toReturn;
+        } finally // do in finally in case something goes wrong we don't bork the orig
+        {
+            orig.position(pos).limit(lim); // restore original
+        }
+    }
+
+    public static ByteBuffer deepCopyVisible(ByteBuffer orig) {
+        int pos = orig.position();
+        try {
+            ByteBuffer toReturn;
+            // try to maintain implementation to keep performance
+            if (orig.isDirect())
+                toReturn = ByteBuffer.allocateDirect(orig.remaining());
+            else
+                toReturn = ByteBuffer.allocate(orig.remaining());
+
+            toReturn.put(orig);
+            toReturn.order(orig.order());
+
+            return (ByteBuffer) toReturn.position(0);
+        } finally {
+            orig.position(pos);
+        }
+    }
+
+    byte[] integersToBytes(int[] values) {
+        ByteArrayOutputStream baos = new ByteArrayOutputStream();
+        DataOutputStream dos = new DataOutputStream(baos);
+        for (int i = 0; i < values.length; ++i) {
+            try {
+                dos.writeInt(values[i]);
+            } catch (IOException e) {
+                e.printStackTrace();
+            }
+        }
+
+        return baos.toByteArray();
+    }
+//    public IplImage render(IplImage image, int[] pixels) {
+////        BufferedImage bi = new BufferedImage(image.width(), image.height(), BufferedImage.TYPE_INT_ARGB);
+////        BufferedImage bi2 = new BufferedImage(image.width(), image.height(), BufferedImage.TYPE_INT_ARGB);
+////        bi.getGraphics().drawImage(converterjava2d.getBufferedImage(converter.convert(image)), 0, 0, null);
+////        rf.filter(bi, bi2);
+////        BufferedImage bi1 = new BufferedImage(image.width(), image.height(), BufferedImage.TYPE_3BYTE_BGR);
+////        bi1.getGraphics().drawImage(bi2, 0, 0, null);
+////        image =converter.convertToIplImage(converterjava2d.convert(bi1));
+//        return image;
+//    }
+
     protected void decodeYUV420SP(int[] rgb, byte[] yuv420sp, int width, int height) {
         int frameSize = width * height;
         for (int j = 0, yp = 0; j < height; j++) {
@@ -359,18 +485,24 @@ class FaceView extends View implements Camera.PreviewCallback {
 //			y0+=10;
 //			x0-=320;
 //			ww-=320;
-            y0 += hh / 2;
-            hh += hh / 2;
+            y0 += canvas.getHeight() / 2-temp.height()/2;
+            hh += canvas.getHeight() / 2-temp.height()/2;
 //			ww-=10;
 //			hh-=10;
-            canvas.drawBitmap(converter.convert(openconverter.convert(temp)), x0, y0, paint);
-            paint.setColor(Color.RED);
+            Bitmap bitmap = converter.convert(openconverter.convert(temp));
+//            Bitmap bitmap1=Bitmap.createBitmap(bitmap.getWidth(), bitmap.getHeight(), Bitmap.Config.ARGB_8888);
+            int[] swim1Ints1=AndroidUtils.bitmapToIntArray(bitmap);
+            int[] swim1Ints2=glf.filter(swim1Ints1,bitmap.getWidth(),bitmap.getHeight());
+            bitmap.copyPixelsFromBuffer(IntBuffer.wrap(swim1Ints2));
+//            if (swim1Ints3!=null){
+//                bitmap.copyPixelsFromBuffer(IntBuffer.wrap(swim1Ints3));
+//            }
+
+            canvas.drawBitmap(bitmap, x0, y0, paint);
+            paint.setColor(Color.WHITE);
             canvas.drawLine(x0, y0, ww, y0, paint);
-            paint.setColor(Color.GREEN);
             canvas.drawLine(x0, hh, ww, hh, paint);
-            paint.setColor(Color.BLUE);
             canvas.drawLine(x0, y0, x0, hh, paint);
-            paint.setColor(Color.YELLOW);
             canvas.drawLine(ww, y0, ww, hh, paint);
         }
         this.invalidate();
