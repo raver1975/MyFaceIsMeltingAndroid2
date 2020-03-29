@@ -474,8 +474,8 @@ class FaceView extends View implements Camera.PreviewCallback {
             paint.setColor(Color.WHITE);
             paint.setStrokeWidth(5);
 
-            int ww = temp1.width();
-            int hh = temp1.height();
+            int ww = canvas.getWidth();
+            int hh = canvas.getHeight();
             int x0 = 0;//-ww/4;
             int y0 = 0;//-hh/4;
 //			ww+=ww/2;
@@ -485,8 +485,8 @@ class FaceView extends View implements Camera.PreviewCallback {
 //			y0+=10;
 //			x0-=320;
 //			ww-=320;
-            y0 += canvas.getHeight() / 2-temp.height()/2;
-            hh += canvas.getHeight() / 2-temp.height()/2;
+//            y0 += canvas.getHeight() / 2;//-temp.height()/2;
+//            hh += canvas.getHeight() / 2;//-temp.height()/2;
 //			ww-=10;
 //			hh-=10;
             Bitmap bitmap = converter.convert(openconverter.convert(temp));
@@ -497,6 +497,7 @@ class FaceView extends View implements Camera.PreviewCallback {
 //            if (swim1Ints3!=null){
 //                bitmap.copyPixelsFromBuffer(IntBuffer.wrap(swim1Ints3));
 //            }
+            bitmap = Bitmap.createScaledBitmap(bitmap,canvas.getWidth(), canvas.getHeight(), true);
 
             canvas.drawBitmap(bitmap, x0, y0, paint);
             paint.setColor(Color.WHITE);
