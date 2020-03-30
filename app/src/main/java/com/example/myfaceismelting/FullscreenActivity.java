@@ -47,33 +47,25 @@ public class FullscreenActivity extends Activity {
 
     private Preview mPreview;
     static int currentCameraId;
+    static int orientation;
 
-    public static void setCameraDisplayOrientation(int rotation, int cameraId, android.hardware.Camera camera) {
+    public static void setCameraDisplayOrientation(int cameraId, android.hardware.Camera camera) {
+        int result;
         android.hardware.Camera.CameraInfo info =
                 new android.hardware.Camera.CameraInfo();
         android.hardware.Camera.getCameraInfo(cameraId, info);
-        int degrees = 0;
-        switch (rotation) {
-            case Surface.ROTATION_0:
-                degrees = 0;
-                break;
-            case Surface.ROTATION_90:
-                degrees = 90;
-                break;
-            case Surface.ROTATION_180:
-                degrees = 180;
-                break;
-            case Surface.ROTATION_270:
-                degrees = 270;
-                break;
-        }
-
-        int result;
         if (info.facing == Camera.CameraInfo.CAMERA_FACING_FRONT) {
-            result = (info.orientation + degrees) % 360;
-            result = (360 - result) % 360;  // compensate the mirror
+            result = (360-FullscreenActivity.orientation) % 360;
+            if (FullscreenActivity.orientation==90){
+                result = 0;
+            }
+            else if (FullscreenActivity.orientation==270){
+                result = 90;
+            }
+
+//            result = (360 - result) % 360;  // compensate the mirror
         } else {  // back-facing
-            result = (info.orientation - degrees + 360) % 360;
+            result = (info.orientation + 360) % 360;
         }
         camera.setDisplayOrientation(result);
     }
@@ -92,7 +84,7 @@ public class FullscreenActivity extends Activity {
                     } catch (CameraAccessException e) {
                         e.printStackTrace();
                     }
-                    Integer orientation = characteristics.get(CameraCharacteristics.SENSOR_ORIENTATION);
+                    orientation = characteristics.get(CameraCharacteristics.SENSOR_ORIENTATION);
                     System.out.println("camera sensor orientation is " + orientation);
                 }
             } catch (CameraAccessException e) {
@@ -120,12 +112,15 @@ public class FullscreenActivity extends Activity {
             });
 
             ToggleButton toggleCam = new ToggleButton(this);
+            toggleCam.setText("BACK");
+            toggleCam.setTextOn("FRONT");
+            toggleCam.setTextOff("BACK");
             toggleCam.setOnCheckedChangeListener(new CompoundButton.OnCheckedChangeListener() {
                 public void onCheckedChanged(CompoundButton buttonView, boolean isChecked) {
                     mPreview.mCamera.stopPreview();
 
 //NB: if you don't release the current camera before switching, you app will crash
-                    mPreview.mCamera.release();
+//                    mPreview.mCamera.release();
                     faceView.temp = null;
                     faceView.image = null;
 
@@ -140,7 +135,8 @@ public class FullscreenActivity extends Activity {
                     prev.mCamera = prev.mCamera.open(currentCameraId);
 
 
-                    setCameraDisplayOrientation(FullscreenActivity.this.getWindowManager().getDefaultDisplay().getRotation(), currentCameraId, prev.mCamera);
+                    setCameraDisplayOrientation(currentCameraId, prev.mCamera);
+//                    setCameraDisplayOrientation(FullscreenActivity.orientation, currentCameraId, prev.mCamera);
                     try {
 
                         prev.mCamera.setPreviewDisplay(prev.mHolder);
@@ -229,8 +225,8 @@ class FaceView extends View implements Camera.PreviewCallback {
         this.preview = preview;
         sf.setAmount(20f);
         sf.setTurbulence(1f);
-        sf.setEdgeAction(TransformFilter.CLAMP);
-        sf1.setEdgeAction(TransformFilter.CLAMP);
+        sf.setEdgeAction(TransformFilter.RGB_CLAMP);
+        sf1.setEdgeAction(TransformFilter.RGB_CLAMP);
         sf1.setAmount(30f);
         sf1.setTurbulence(1f);
         sf1.setScale(300);
@@ -240,17 +236,44 @@ class FaceView extends View implements Camera.PreviewCallback {
 
     public void onPreviewFrame(byte[] data, final Camera camera) {
         try {
-            int ww = preview.mCamera.getParameters().getPreviewSize().width;
-            int hh = preview.mCamera.getParameters().getPreviewSize().height;
+            int hh = preview.mCamera.getParameters().getPreviewSize().width;
+            int ww = preview.mCamera.getParameters().getPreviewSize().height;
             if (FullscreenActivity.currentCameraId == 0) {
                 data = rotateYUV420Degree90(data, preview.mCamera.getParameters().getPreviewSize().width, preview.mCamera.getParameters().getPreviewSize().height);
             } else {
 //                hh = preview.mCamera.getParameters().getPreviewSize().width;
 //                ww = preview.mCamera.getParameters().getPreviewSize().height;
-                data = rotateYUV420Degree270(data, preview.mCamera.getParameters().getPreviewSize().width, preview.mCamera.getParameters().getPreviewSize().height);
+                android.hardware.Camera.CameraInfo info =
+                        new android.hardware.Camera.CameraInfo();
+                android.hardware.Camera.getCameraInfo(FullscreenActivity.currentCameraId, info);
+//                System.out.println("surface rotation:" + FullscreenActivity.orientation + "\t" + info.orientation);
+                switch ((FullscreenActivity.orientation) % 360) {
+                    case 0:
+//                        data = rotateYUV420Degree270(data, preview.mCamera.getParameters().getPreviewSize().width, preview.mCamera.getParameters().getPreviewSize().height);
+//                        data = rotateYUV420Degree180(data, preview.mCamera.getParameters().getPreviewSize().width, preview.mCamera.getParameters().getPreviewSize().height);
+                        ww = preview.mCamera.getParameters().getPreviewSize().width;
+                        hh = preview.mCamera.getParameters().getPreviewSize().height;
+                        break;
+                    case 90:
+//                        data = rotateYUV420Degree90(data, preview.mCamera.getParameters().getPreviewSize().width, preview.mCamera.getParameters().getPreviewSize().height);
+                        ww = preview.mCamera.getParameters().getPreviewSize().width;
+                        hh = preview.mCamera.getParameters().getPreviewSize().height;
+                        break;
+                    case 180:
+                        data = rotateYUV420Degree180(data, preview.mCamera.getParameters().getPreviewSize().width, preview.mCamera.getParameters().getPreviewSize().height);
+                        ww = preview.mCamera.getParameters().getPreviewSize().width;
+                        hh = preview.mCamera.getParameters().getPreviewSize().height;
+                        break;
+                    case 270:
+                        data = rotateYUV420Degree270(data, preview.mCamera.getParameters().getPreviewSize().width, preview.mCamera.getParameters().getPreviewSize().height);
+                        hh = preview.mCamera.getParameters().getPreviewSize().width;
+                        ww = preview.mCamera.getParameters().getPreviewSize().height;
+                        break;
+                }
+
             }
 
-            processImage(data, hh, ww);
+            processImage(data, ww, hh);
         } catch (ArrayIndexOutOfBoundsException e) {
             //e.printStackTrace();
             // The camera has probably just been released, ignore.
@@ -361,7 +384,7 @@ class FaceView extends View implements Camera.PreviewCallback {
         Bitmap bitmap1 = Bitmap.createBitmap(image.width(), image.height(), Bitmap.Config.ARGB_8888);
         bitmap1.copyPixelsFromBuffer(IntBuffer.wrap(swim1Ints3));
         IplImage image1 = openconverter.convertToIplImage(androidFrameConverter.convert(bitmap1));
-        cvCvtColor(image1, image, CV_RGBA2RGB);
+        cvCvtColor(image1, image, CV_RGBA2BGR);
         cvCvtColor(image, gray, CV_BGR2GRAY);
         cvSmooth(gray, gray, CV_MEDIAN, MEDIAN_BLUR_FILTER_SIZE, 0, 0, 0);
         cvLaplace(gray, edges, LAPLACIAN_FILTER_SIZE);
@@ -384,15 +407,17 @@ class FaceView extends View implements Camera.PreviewCallback {
         paint.setColor(Color.RED);
         paint.setTextSize(20);
 
-        String s = "FacePreview - This side up." + Math.random();
-        float textWidth = paint.measureText(s);
-        canvas.drawText(s, (getWidth() - textWidth) / 2, (float) (20 + Math.random() * 20), paint);
+//        String s = "FacePreview - This side up." + Math.random();
+//        float textWidth = paint.measureText(s);
+//        canvas.drawText(s, (getWidth() - textWidth) / 2, 20, paint);
         if (enable && temp != null && !temp.isNull() && temp.width() > 0 && temp.height() > 0) {
             paint.setColor(Color.WHITE);
             Bitmap bitmap = converter.convert(openconverter.convert(temp));
+            /*//---------------------------
             int[] swim1Ints1 = AndroidUtils.bitmapToIntArray(bitmap);
             int[] swim1Ints2 = glf.filter(swim1Ints1, bitmap.getWidth(), bitmap.getHeight());
             bitmap.copyPixelsFromBuffer(IntBuffer.wrap(swim1Ints2));
+            //---------------------------*/
             bitmap = createScaledBitmap(bitmap, getWidth(), getHeight(), true);
 //            android.hardware.Camera.CameraInfo info = new android.hardware.Camera.CameraInfo();
 //            android.hardware.Camera.getCameraInfo(FullscreenActivity.currentCameraId, info);
@@ -407,7 +432,12 @@ class FaceView extends View implements Camera.PreviewCallback {
 //            } else {
 ////                canvas.scale(1,1);
 //            }
-            canvas.drawBitmap(bitmap, 0, 0, paint);
+            Matrix flipHorizontalMatrix = new Matrix();
+            if (FullscreenActivity.currentCameraId == 1&&FullscreenActivity.orientation!=270) {
+                flipHorizontalMatrix.setScale(-1, 1);
+                flipHorizontalMatrix.postTranslate(canvas.getWidth(), 0);
+            }
+            canvas.drawBitmap(bitmap, flipHorizontalMatrix, paint);
 
         }
         this.invalidate();
@@ -487,39 +517,26 @@ class Preview extends SurfaceView implements SurfaceHolder.Callback {
         // Now that the size is known, set up the camera parameters and begin
         // the preview.
         Camera.Parameters parameters = mCamera.getParameters();
-
         List<Size> sizes = parameters.getSupportedPreviewSizes();
-        Size optimalSize = getOptimalPreviewSize(sizes, 0, 0);
+        Size optimalSize = getOptimalPreviewSize(sizes, 640, 480);
+//        Size optimalSize = getOptimalPreviewSize(sizes, 0,0);
         parameters.setPreviewSize(optimalSize.width, optimalSize.height);
         WindowManager wm = (WindowManager) getContext().getSystemService(Context.WINDOW_SERVICE);
         int rotation = wm.getDefaultDisplay().getRotation();
-        switch (rotation) {
-            case Surface.ROTATION_0:
-                rotation = 0;
-                break;
-            case Surface.ROTATION_90:
-                rotation = 90;
-                break;
-            case Surface.ROTATION_180:
-                rotation = 180;
-                break;
-            case Surface.ROTATION_270:
-                rotation = 270;
-                break;
-        }
+        rotation = FullscreenActivity.orientation;
         android.hardware.Camera.CameraInfo info =
                 new android.hardware.Camera.CameraInfo();
         android.hardware.Camera.getCameraInfo(FullscreenActivity.currentCameraId, info);
         int result;
         if (info.facing == Camera.CameraInfo.CAMERA_FACING_FRONT) {
-            result = (info.orientation + rotation) % 360;
-            result = (360 - result) % 360;  // compensate the mirror
+            result = (rotation) % 360;
+//            result = (360 - result) % 360;  // compensate the mirror
         } else {  // back-facing
             result = (info.orientation - rotation + 360) % 360;
         }
         parameters.setRotation(result);
         mCamera.setParameters(parameters);
-        FullscreenActivity.setCameraDisplayOrientation(rotation, FullscreenActivity.currentCameraId, mCamera);
+        FullscreenActivity.setCameraDisplayOrientation(FullscreenActivity.currentCameraId, mCamera);
         if (previewCallback != null) {
             mCamera.setPreviewCallbackWithBuffer(previewCallback);
             Size size = parameters.getPreviewSize();
@@ -527,6 +544,7 @@ class Preview extends SurfaceView implements SurfaceHolder.Callback {
             mCamera.addCallbackBuffer(data);
         }
         mCamera.startPreview();
+        mCamera.autoFocus(null);
     }
 
 }
