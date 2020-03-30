@@ -9,7 +9,7 @@
                  android:theme="@style/AppTheme">
 
         <activity
-                android:label="MFIS"
+                android:label="MFIM"
                 android:name="com.example.myfaceismelting.FullscreenActivity">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN"/>

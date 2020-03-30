@@ -1,51 +1,3 @@
-/*
- * Copyright (C) 2010,2011,2012 Samuel Audet
- *
- * FacePreview - A fusion of OpenCV's facedetect and Android's CameraPreview samples,
- *               with JavaCV + JavaCPP as the glue in between.
- *
- * This file was based on CameraPreview.java that came with the Samples for
- * Android SDK API 8, revision 1 and contained the following copyright notice:
- *
- * Copyright (C) 2007 The Android Open Source Project
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- *      http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- *
- *
- * IMPORTANT - Make sure the AndroidManifest.xml file looks like this:
- *
- * <?xml version="1.0" encoding="utf-8"?>
- * <manifest xmlns:android="http://schemas.android.com/apk/res/android"
- *     package="com.googlecode.javacv.facepreview"
- *     android:versionCode="1"
- *     android:versionName="1.0" >
- *     <uses-sdk android:minSdkVersion="4" />
- *     <uses-permission android:name="android.permission.CAMERA" />
- *     <uses-feature android:name="android.hardware.camera" />
- *     <application android:label="@string/app_name">
- *         <activity
- *             android:name="FacePreview"
- *             android:label="@string/app_name"
- *             android:screenOrientation="landscape">
- *             <intent-filter>
- *                 <action android:name="android.intent.action.MAIN" />
- *                 <category android:name="android.intent.category.LAUNCHER" />
- *             </intent-filter>
- *         </activity>
- *     </application>
- * </manifest>
- */
-
 package com.example.myfaceismelting;
 
 import android.app.Activity;
@@ -57,20 +9,15 @@ import android.hardware.Camera;
 import android.hardware.Camera.Size;
 import android.os.Bundle;
 import android.view.*;
-import android.widget.FrameLayout;
+import android.widget.*;
 import androidx.core.app.ActivityCompat;
 import androidx.core.content.ContextCompat;
 import com.jabistudio.androidjhlabs.filter.PosterizeFilter;
 import com.jabistudio.androidjhlabs.filter.SwimFilter;
 import com.jabistudio.androidjhlabs.filter.util.AndroidUtils;
-import org.bytedeco.javacpp.Loader;
 import org.bytedeco.javacv.AndroidFrameConverter;
 import org.bytedeco.javacv.OpenCVFrameConverter;
-
 import org.bytedeco.opencv.opencv_core.IplImage;
-import org.bytedeco.opencv.opencv_core.Mat;
-import org.bytedeco.opencv.opencv_java;
-import org.opencv.core.CvType;
 
 import java.io.ByteArrayOutputStream;
 import java.io.DataOutputStream;
@@ -91,23 +38,36 @@ public class FullscreenActivity extends Activity {
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
-        // Hide the window title.
         requestWindowFeature(Window.FEATURE_NO_TITLE);
-
         super.onCreate(savedInstanceState);
-//        Loader.load(opencv_java.class);
         getWindow().addFlags(WindowManager.LayoutParams.FLAG_FULLSCREEN);
         if (ContextCompat.checkSelfPermission(getApplicationContext(), android.Manifest.permission.CAMERA) != PackageManager.PERMISSION_GRANTED) {
             ActivityCompat.requestPermissions(FullscreenActivity.this, new String[]{android.Manifest.permission.CAMERA}, 50);
         }
-        // Create our Preview view and set it as the content of our activity.
         try {
             FrameLayout layout = new FrameLayout(this);
-            FaceView faceView = new FaceView(this);
+            final FaceView faceView = new FaceView(this);
             Preview mPreview = new Preview(this, faceView);
 
+            ToggleButton toggle = new ToggleButton(this);
+
+            toggle.setOnCheckedChangeListener(new CompoundButton.OnCheckedChangeListener() {
+                public void onCheckedChanged(CompoundButton buttonView, boolean isChecked) {
+                    if (isChecked) {
+                        faceView.enable = true;
+                    } else {
+                        faceView.enable = false;
+                    }
+                }
+            });
+
+//create a layout
+            LinearLayout layoutlin = new LinearLayout(this);
+            layoutlin.setOrientation(LinearLayout.VERTICAL);
+            layoutlin.addView(toggle);
             layout.addView(mPreview);
             layout.addView(faceView);
+            layout.addView(layoutlin);
             setContentView(layout);
         } catch (IOException e) {
             e.printStackTrace();
@@ -120,6 +80,7 @@ public class FullscreenActivity extends Activity {
 
 class FaceView extends View implements Camera.PreviewCallback {
 
+    public boolean enable;
     private IplImage image;
 
     int LAPLACIAN_FILTER_SIZE = 5;
@@ -128,24 +89,18 @@ class FaceView extends View implements Camera.PreviewCallback {
     int ksize = 1; // Filter size. Has a large effect on speed.
     double sigmaColor = 9; // Filter color strength.
     double sigmaSpace = 7; // Spatial strength. Affects speed.
-    int NUM_COLORS = 16;
     private IplImage gray;
     private IplImage edges;
     private IplImage temp;
-    //	private IplImage colorImage1;
     private IplImage temp1;
     SwimFilter sf = new SwimFilter();
     SwimFilter sf1 = new SwimFilter();
     PosterizeFilter glf = new PosterizeFilter();
     private float t1;
     private float t2;
-
-    //    private IplImage temp1;
     AndroidFrameConverter converter = new AndroidFrameConverter();
     OpenCVFrameConverter openconverter = new OpenCVFrameConverter.ToIplImage();
     AndroidFrameConverter androidFrameConverter = new AndroidFrameConverter();
-
-
     Paint paint = new Paint();
     private int[] swim1Ints3;
     private IplImage image1;
@@ -167,10 +122,9 @@ class FaceView extends View implements Camera.PreviewCallback {
     public void onPreviewFrame(final byte[] data, final Camera camera) {
 
 
-
         try {
             Size size = camera.getParameters().getPreviewSize();
-            processImage(rotateYUV420Degree90(data,size.width,size.height), size.height, size.width);
+            processImage(rotateYUV420Degree90(data, size.width, size.height), size.height, size.width);
             camera.addCallbackBuffer(data);
         } catch (RuntimeException e) {
             e.printStackTrace();
@@ -178,28 +132,23 @@ class FaceView extends View implements Camera.PreviewCallback {
         }
     }
 
-    private byte[] rotateYUV420Degree90(byte[] data, int imageWidth, int imageHeight)
-    {
-        byte [] yuv = new byte[imageWidth*imageHeight*3/2];
+    private byte[] rotateYUV420Degree90(byte[] data, int imageWidth, int imageHeight) {
+        byte[] yuv = new byte[imageWidth * imageHeight * 3 / 2];
         // Rotate the Y luma
         int i = 0;
-        for(int x = 0;x < imageWidth;x++)
-        {
-            for(int y = imageHeight-1;y >= 0;y--)
-            {
-                yuv[i] = data[y*imageWidth+x];
+        for (int x = 0; x < imageWidth; x++) {
+            for (int y = imageHeight - 1; y >= 0; y--) {
+                yuv[i] = data[y * imageWidth + x];
                 i++;
             }
         }
         // Rotate the U and V color components
-        i = imageWidth*imageHeight*3/2-1;
-        for(int x = imageWidth-1;x > 0;x=x-2)
-        {
-            for(int y = 0;y < imageHeight/2;y++)
-            {
-                yuv[i] = data[(imageWidth*imageHeight)+(y*imageWidth)+x];
+        i = imageWidth * imageHeight * 3 / 2 - 1;
+        for (int x = imageWidth - 1; x > 0; x = x - 2) {
+            for (int y = 0; y < imageHeight / 2; y++) {
+                yuv[i] = data[(imageWidth * imageHeight) + (y * imageWidth) + x];
                 i--;
-                yuv[i] = data[(imageWidth*imageHeight)+(y*imageWidth)+(x-1)];
+                yuv[i] = data[(imageWidth * imageHeight) + (y * imageWidth) + (x - 1)];
                 i--;
             }
         }
@@ -207,6 +156,7 @@ class FaceView extends View implements Camera.PreviewCallback {
     }
 
     protected void processImage(byte[] data, int width, int height) {
+        if (!enable) return;
         // First, downsample our image and convert it into a grayscale IplImage
 
         if (image == null || image.width() != width || image.height() != height) {
@@ -504,7 +454,7 @@ class FaceView extends View implements Camera.PreviewCallback {
 //			ByteBuffer bb = colorImage.getByteBuffer();
 //			bitmap.copyPixelsToBuffer(bb);
 //			bitmap=converter.convert(openconverter.convert(colorImage));
-        if (image != null) {
+        if (enable && image != null) {
             paint.setColor(Color.WHITE);
             paint.setStrokeWidth(5);
 
@@ -525,13 +475,13 @@ class FaceView extends View implements Camera.PreviewCallback {
 //			hh-=10;
             Bitmap bitmap = converter.convert(openconverter.convert(temp));
 //            Bitmap bitmap1=Bitmap.createBitmap(bitmap.getWidth(), bitmap.getHeight(), Bitmap.Config.ARGB_8888);
-            int[] swim1Ints1=AndroidUtils.bitmapToIntArray(bitmap);
-            int[] swim1Ints2=glf.filter(swim1Ints1,bitmap.getWidth(),bitmap.getHeight());
+            int[] swim1Ints1 = AndroidUtils.bitmapToIntArray(bitmap);
+            int[] swim1Ints2 = glf.filter(swim1Ints1, bitmap.getWidth(), bitmap.getHeight());
             bitmap.copyPixelsFromBuffer(IntBuffer.wrap(swim1Ints2));
 //            if (swim1Ints3!=null){
 //                bitmap.copyPixelsFromBuffer(IntBuffer.wrap(swim1Ints3));
 //            }
-            bitmap = Bitmap.createScaledBitmap(bitmap,canvas.getWidth(), canvas.getHeight(), true);
+            bitmap = Bitmap.createScaledBitmap(bitmap, canvas.getWidth(), canvas.getHeight(), true);
 
             canvas.drawBitmap(bitmap, x0, y0, paint);
 //            canvas.drawLine(x0, y0, ww, y0, paint);
@@ -643,13 +593,21 @@ class Preview extends SurfaceView implements SurfaceHolder.Callback {
 
         Camera.CameraInfo info = new Camera.CameraInfo();
         Camera.getCameraInfo(Camera.CameraInfo.CAMERA_FACING_BACK, info);
-        int rotation = ((Activity)getContext()).getWindowManager().getDefaultDisplay().getRotation();
+        int rotation = ((Activity) getContext()).getWindowManager().getDefaultDisplay().getRotation();
         int degrees = 0;
         switch (rotation) {
-            case Surface.ROTATION_0: degrees = 0; break; //Natural orientation
-            case Surface.ROTATION_90: degrees = 90; break; //Landscape left
-            case Surface.ROTATION_180: degrees = 180; break;//Upside down
-            case Surface.ROTATION_270: degrees = 270; break;//Landscape right
+            case Surface.ROTATION_0:
+                degrees = 0;
+                break; //Natural orientation
+            case Surface.ROTATION_90:
+                degrees = 90;
+                break; //Landscape left
+            case Surface.ROTATION_180:
+                degrees = 180;
+                break;//Upside down
+            case Surface.ROTATION_270:
+                degrees = 270;
+                break;//Landscape right
         }
         int rotate = (info.orientation - degrees + 360) % 360;
 
