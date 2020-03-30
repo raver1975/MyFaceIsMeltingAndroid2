@@ -63,11 +63,13 @@ import androidx.core.content.ContextCompat;
 import com.jabistudio.androidjhlabs.filter.PosterizeFilter;
 import com.jabistudio.androidjhlabs.filter.SwimFilter;
 import com.jabistudio.androidjhlabs.filter.util.AndroidUtils;
+import org.bytedeco.javacpp.Loader;
 import org.bytedeco.javacv.AndroidFrameConverter;
 import org.bytedeco.javacv.OpenCVFrameConverter;
 
 import org.bytedeco.opencv.opencv_core.IplImage;
 import org.bytedeco.opencv.opencv_core.Mat;
+import org.bytedeco.opencv.opencv_java;
 import org.opencv.core.CvType;
 
 import java.io.ByteArrayOutputStream;
@@ -93,7 +95,7 @@ public class FullscreenActivity extends Activity {
         requestWindowFeature(Window.FEATURE_NO_TITLE);
 
         super.onCreate(savedInstanceState);
-
+//        Loader.load(opencv_java.class);
         getWindow().addFlags(WindowManager.LayoutParams.FLAG_FULLSCREEN);
         if (ContextCompat.checkSelfPermission(getApplicationContext(), android.Manifest.permission.CAMERA) != PackageManager.PERMISSION_GRANTED) {
             ActivityCompat.requestPermissions(FullscreenActivity.this, new String[]{android.Manifest.permission.CAMERA}, 50);
@@ -103,6 +105,7 @@ public class FullscreenActivity extends Activity {
             FrameLayout layout = new FrameLayout(this);
             FaceView faceView = new FaceView(this);
             Preview mPreview = new Preview(this, faceView);
+
             layout.addView(mPreview);
             layout.addView(faceView);
             setContentView(layout);
@@ -162,14 +165,45 @@ class FaceView extends View implements Camera.PreviewCallback {
     }
 
     public void onPreviewFrame(final byte[] data, final Camera camera) {
+
+
+
         try {
             Size size = camera.getParameters().getPreviewSize();
-            processImage(data, size.width, size.height);
+            processImage(rotateYUV420Degree90(data,size.width,size.height), size.height, size.width);
             camera.addCallbackBuffer(data);
         } catch (RuntimeException e) {
             e.printStackTrace();
             // The camera has probably just been released, ignore.
         }
+    }
+
+    private byte[] rotateYUV420Degree90(byte[] data, int imageWidth, int imageHeight)
+    {
+        byte [] yuv = new byte[imageWidth*imageHeight*3/2];
+        // Rotate the Y luma
+        int i = 0;
+        for(int x = 0;x < imageWidth;x++)
+        {
+            for(int y = imageHeight-1;y >= 0;y--)
+            {
+                yuv[i] = data[y*imageWidth+x];
+                i++;
+            }
+        }
+        // Rotate the U and V color components
+        i = imageWidth*imageHeight*3/2-1;
+        for(int x = imageWidth-1;x > 0;x=x-2)
+        {
+            for(int y = 0;y < imageHeight/2;y++)
+            {
+                yuv[i] = data[(imageWidth*imageHeight)+(y*imageWidth)+x];
+                i--;
+                yuv[i] = data[(imageWidth*imageHeight)+(y*imageWidth)+(x-1)];
+                i--;
+            }
+        }
+        return yuv;
     }
 
     protected void processImage(byte[] data, int width, int height) {
@@ -500,11 +534,10 @@ class FaceView extends View implements Camera.PreviewCallback {
             bitmap = Bitmap.createScaledBitmap(bitmap,canvas.getWidth(), canvas.getHeight(), true);
 
             canvas.drawBitmap(bitmap, x0, y0, paint);
-            paint.setColor(Color.WHITE);
-            canvas.drawLine(x0, y0, ww, y0, paint);
-            canvas.drawLine(x0, hh, ww, hh, paint);
-            canvas.drawLine(x0, y0, x0, hh, paint);
-            canvas.drawLine(ww, y0, ww, hh, paint);
+//            canvas.drawLine(x0, y0, ww, y0, paint);
+//            canvas.drawLine(x0, hh, ww, hh, paint);
+//            canvas.drawLine(x0, y0, x0, hh, paint);
+//            canvas.drawLine(ww, y0, ww, hh, paint);
         }
         this.invalidate();
     }
@@ -547,7 +580,7 @@ class Preview extends SurfaceView implements SurfaceHolder.Callback {
     public void surfaceCreated(SurfaceHolder holder) {
         // The Surface has been created, acquire the camera and tell it where
         // to draw.
-        mCamera = Camera.open();
+        mCamera = Camera.open(0);
         try {
             mCamera.setPreviewDisplay(holder);
         } catch (IOException exception) {
@@ -608,7 +641,24 @@ class Preview extends SurfaceView implements SurfaceHolder.Callback {
         Size optimalSize = getOptimalPreviewSize(sizes, w, h);
         parameters.setPreviewSize(optimalSize.width, optimalSize.height);
 
+        Camera.CameraInfo info = new Camera.CameraInfo();
+        Camera.getCameraInfo(Camera.CameraInfo.CAMERA_FACING_BACK, info);
+        int rotation = ((Activity)getContext()).getWindowManager().getDefaultDisplay().getRotation();
+        int degrees = 0;
+        switch (rotation) {
+            case Surface.ROTATION_0: degrees = 0; break; //Natural orientation
+            case Surface.ROTATION_90: degrees = 90; break; //Landscape left
+            case Surface.ROTATION_180: degrees = 180; break;//Upside down
+            case Surface.ROTATION_270: degrees = 270; break;//Landscape right
+        }
+        int rotate = (info.orientation - degrees + 360) % 360;
+
+//STEP #2: Set the 'rotation' parameter
+//        Camera.Parameters params = mCamera.getParameters();
+        parameters.setRotation(rotate);
+
         mCamera.setParameters(parameters);
+        mCamera.setDisplayOrientation(rotate);
         if (previewCallback != null) {
             mCamera.setPreviewCallbackWithBuffer(previewCallback);
             Size size = parameters.getPreviewSize();

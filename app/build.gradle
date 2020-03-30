@@ -12,11 +12,81 @@ android {
         testInstrumentationRunner "androidx.test.runner.AndroidJUnitRunner"
         multiDexEnabled true
     }
+//    packagingOptions {
+////         exclude ARMEABI native so file, ARMEABI has been removed in NDK r17.
+//        exclude "lib/x86/**"
+//    }
+    /*   packagingOptions {
+           pickFirst 'lib/x86/libopencv_aruco.so'
+           pickFirst 'lib/armeabi-v7a/libjniopencv_video.so'
+           pickFirst 'lib/armeabi-v7a/libjniopencv_objdetect.so'
+           pickFirst 'lib/arm64-v8a/libopencv_bgsegm.so'
+           pickFirst 'lib/arm64-v8a/libjniopencv_optflow.so'
+           pickFirst 'lib/x86/libopencv_structured_light.so'
+           pickFirst 'lib/arm64-v8a/libopencv_bioinspired.so'
+           pickFirst 'lib/armeabi-v7a/libjniopencv_dnn.so'
+           pickFirst 'lib/armeabi-v7a/libopencv_shape.so'
+           pickFirst 'lib/armeabi-v7a/libjniopencv_calib3d.so'
+           pickFirst 'lib/armeabi-v7a/libopencv_img_hash.so'
+           pickFirst 'lib/x86/libjniopencv_structured_light.so'
+           pickFirst 'lib/x86/libjnicvkernels.so'
+           pickFirst 'lib/arm64-v8a/libopencv_core.so'
+           pickFirst 'lib/x86/libopencv_videoio.so'
+           pickFirst 'lib/armeabi-v7a/libjniopencv_structured_light.so'
+           pickFirst 'lib/arm64-v8a/libopencv_ml.so'
+           pickFirst 'lib/arm64-v8a/libjniavformat.so'
+           pickFirst 'lib/arm64-v8a/libopencv_structured_light.so'
+           pickFirst 'lib/arm64-v8a/libopencv_xphoto.so'
+           pickFirst 'lib/x86/libjniopencv_ml.so'
+           pickFirst 'lib/armeabi-v7a/libopencv_video.so'
+           pickFirst 'lib/x86/libjniavdevice.so'
+           pickFirst 'lib/armeabi-v7a/libjniopencv_features2d.so'
+           pickFirst 'lib/armeabi-v7a/libjniopencv_saliency.so'
+           pickFirst 'lib/arm64-v8a/libjniswscale.so'
+           pickFirst 'lib/arm64-v8a/libopencv_highgui.so'
+           pickFirst 'lib/x86/libopencv_videostab.so'
+           pickFirst 'lib/arm64-v8a/libjniopencv_ximgproc.so'
+           pickFirst 'lib/x86/libopencv_ximgproc.so'
+           pickFirst 'lib/armeabi-v7a/libopencv_core.so'
+           pickFirst ''
+           pickFirst ''
+           pickFirst ''
+           pickFirst ''
+           pickFirst ''
+           pickFirst ''
+
+
+
+       }*/
     buildTypes {
         release {
             minifyEnabled false
             proguardFiles getDefaultProguardFile('proguard-android-optimize.txt'), 'proguard-rules.pro'
         }
+    }
+    splits {
+        abi {
+            enable true
+            reset()
+            include "armeabi", "armeabi-v7a", 'arm64-v8a', "mips", "x86", "x86_64", 'arm64-v8a'
+            universalApk true
+        }
+    }
+}
+
+ext.versionCodes = ['armeabi': 3, 'armeabi-v7a': 4, 'arm64-v8a': 5,
+                    mips     : 6, 'x86': 7, 'x86_64': 8]
+import com.android.build.OutputFile
+
+android.applicationVariants.all { variant ->
+    variant.outputs.each { output ->
+        def abiFilter = output.getFilter(OutputFile.ABI)
+        def abiMultiplier = 0
+        if (abiFilter != null) {
+            abiMultiplier = project.ext.versionCodes.get(abiFilter)
+        }
+        output.versionCodeOverride =
+                abiMultiplier * 1000 + android.defaultConfig.versionCode
     }
 }
 
@@ -27,10 +97,90 @@ dependencies {
     testImplementation 'junit:junit:4.12'
     androidTestImplementation 'androidx.test:runner:1.2.0'
     androidTestImplementation 'androidx.test.espresso:espresso-core:3.2.0'
-    implementation group: 'org.bytedeco', name: 'javacv-platform', version: '1.5.2'
-//    compile 'org.bytedeco:javacv:1.5.2'
+//    implementation group: 'org.bytedeco', name: 'javacv-platform', version: '1.5.2'
+
+//    implementation group: 'org.bytedeco.javacpp-presets', name: 'opencv', version: '4.0.1-1.4.4', classifier: 'android-arm'
+//    implementation group: 'org.bytedeco.javacpp-presets', name: 'opencv', version: '4.0.1-1.4.4', classifier: 'android-x86'
+//    implementation group: 'org.bytedeco.javacpp-presets', name: 'opencv', version: '4.0.1-1.4.4', classifier: 'android-arm64'
+//    implementation group: 'org.bytedeco.javacpp-presets', name: 'ffmpeg', version: '4.1-1.4.4', classifier: 'android-arm'
+//    implementation group: 'org.bytedeco.javacpp-presets', name: 'ffmpeg', version: '4.1-1.4.4', classifier: 'android-x86'
+//    implementation group: 'org.bytedeco.javacpp-presets', name: 'ffmpeg', version: '4.1-1.4.4', classifier: 'android-arm64'
+//    implementation group: 'org.bytedeco', name: 'javacv', version: '1.5.2'
 //    compile 'org.bytedeco.javacpp-presets:opencv:3.0.0-1.1:android-x86'
 //    compile 'org.bytedeco.javacpp-presets:ffmpeg:2.8.1-1.1:android-x86'
 //    compile 'org.bytedeco.javacpp-presets:opencv:3.0.0-1.1:android-arm'
 //    compile 'org.bytedeco.javacpp-presets:ffmpeg:2.8.1-1.1:android-arm'
+
+//    compile(group: 'org.bytedeco', name: 'javacv-platform', version: '1.5.2') {
+////        exclude group: 'org.bytedeco', module: 'opencv'
+////        exclude group: 'org.bytedeco', module: 'opencv-platform'
+//        exclude group: 'org.bytedeco', module: 'ffmpeg'
+//        exclude group: 'org.bytedeco', module: 'ffpeg-platform'
+//        exclude group: 'org.bytedeco', module: 'opencv2'
+//        exclude group: 'org.bytedeco', module: 'opencv2-platform'
+//        exclude group: 'org.bytedeco', module: 'flycapture'
+//        exclude group: 'org.bytedeco', module: 'flycapture-platform'
+//        exclude group: 'org.bytedeco', module: 'libdc1394'
+//        exclude group: 'org.bytedeco', module: 'libdc1394-platform'
+//        exclude group: 'org.bytedeco', module: 'libfreenect'
+//        exclude group: 'org.bytedeco', module: 'libfreenect-platform'
+//        exclude group: 'org.bytedeco', module: 'libfreenect2'
+//        exclude group: 'org.bytedeco', module: 'libfreenect2-platform'
+//        exclude group: 'org.bytedeco', module: 'librealsense'
+//        exclude group: 'org.bytedeco', module: 'librealsense-platform'
+//        exclude group: 'org.bytedeco', module: 'videoinput'
+//        exclude group: 'org.bytedeco', module: 'videoinput-platform'
+//        exclude group: 'org.bytedeco', module: 'artoolkitplus'
+//        exclude group: 'org.bytedeco', module: 'artoolkitplus-platform'
+//        exclude group: 'org.bytedeco', module: 'artoolkitplus'
+//        exclude group: 'org.bytedeco', module: 'artoolkitplus-platform'
+//        exclude group: 'org.bytedeco', module: 'flandmark'
+//        exclude group: 'org.bytedeco', module: 'flandmark-platform'
+//        exclude group: 'org.bytedeco', module: 'leptonica'
+//        exclude group: 'org.bytedeco', module: 'leptonica-platform'
+//        exclude group: 'org.bytedeco', module: 'tesseract'
+//        exclude group: 'org.bytedeco', module: 'tesseract-platform'
+////        exclude group: 'org.bytedeco', module: 'openblas'
+////        exclude group: 'org.bytedeco', module: 'openblas-platform'
+//    }
+
+    implementation 'org.bytedeco:javacv:1.5.2'
+    implementation group: 'org.bytedeco', name: 'openblas', version: '0.3.7-1.5.2'
+    implementation group: 'org.bytedeco', name: 'openblas', version: '0.3.7-1.5.2', classifier: 'android-arm'
+    implementation group: 'org.bytedeco', name: 'openblas', version: '0.3.7-1.5.2', classifier: 'android-arm64'
+//    implementation group: 'org.bytedeco', name: 'openblas', version: '0.3.7-1.5.2', classifier: 'android-arm64-v8a'
+//    implementation group: 'org.bytedeco', name: 'openblas', version: '0.3.7-1.5.2', classifier: 'android-mips'
+    implementation group: 'org.bytedeco', name: 'openblas', version: '0.3.7-1.5.2', classifier: 'android-x86'
+    implementation group: 'org.bytedeco', name: 'openblas', version: '0.3.7-1.5.2', classifier: 'android-x86_64'
+//    implementation group: 'org.bytedeco', name: 'openblas', version: '0.3.7-1.5.2', classifier: 'android-arm64-v8a'
+
+    //"armeabi", "armeabi-v7a", 'arm64-v8a', "mips", "x86", "x86_64", 'arm64-v8a'
+    implementation group: 'org.bytedeco', name: 'opencv', version: '4.1.2-1.5.2'
+    implementation group: 'org.bytedeco', name: 'opencv', version: '4.1.2-1.5.2', classifier: 'android-arm'
+    implementation group: 'org.bytedeco', name: 'opencv', version: '4.1.2-1.5.2', classifier: 'android-arm64'
+//    implementation group: 'org.bytedeco', name: 'opencv', version: '4.1.2-1.5.2', classifier: 'android-arm64-v8a'
+//    implementation group: 'org.bytedeco', name: 'opencv', version: '4.1.2-1.5.2', classifier: 'android-mips'
+    implementation group: 'org.bytedeco', name: 'opencv', version: '4.1.2-1.5.2', classifier: 'android-x86'
+    implementation group: 'org.bytedeco', name: 'opencv', version: '4.1.2-1.5.2', classifier: 'android-x86_64'
+//    implementation group: 'org.bytedeco', name: 'opencv', version: '4.1.2-1.5.2', classifier: 'android-arm64-v8a'
+//    implementation 'org.bytedeco:javacv-platform:1.5.2'
+//    implementation group: 'org.bytedeco.javacpp-presets', name: 'javacv-platform', version: '4.0.1-1.4.4'
+//    implementation group: 'org.bytedeco.javacpp-presets', name: 'openblas-platform', version: '0.3.5-1.4.4'
+//    implementation group: 'org.bytedeco.javacpp-presets', name: 'ffmpeg-platform', version: '3.2.1-1.3'
+//    implementation 'org.bytedeco.javacpp-presets:opencv:4.0.1-1.4.4:android-x86'
+//    implementation 'org.bytedeco.javacpp-presets:opencv:4.0.1-1.4.4:android-arm'
+//    implementation 'org.bytedeco.javacpp-presets:opencv:4.0.1-1.4.4:android-arm64'
+//    implementation 'org.bytedeco.javacpp-presets:ffmpeg:4.1-1.4.4:android-x86'
+//    implementation 'org.bytedeco.javacpp-presets:ffmpeg:4.1-1.4.4:android-arm'
+//    implementation 'org.bytedeco.javacpp-presets:ffmpeg:4.1-1.4.4:android-arm64'
+//    implementation 'org.bytedeco.javacpp-presets:openblas:+:android-x86'
+//    implementation 'org.bytedeco.javacpp-presets:openblas:+:android-arm'
+//    implementation 'org.bytedeco.javacpp-presets:openblas:+:android-arm64'
+//    implementation 'org.bytedeco.javacpp-presets:global:+:android-x86'
+//    implementation 'org.bytedeco.javacpp-presets:global:+:android-arm'
+//    implementation 'org.bytedeco.javacpp-presets:global:+:android-arm64'
+
+//    implementation group: 'org.bytedeco', name: 'javacv', version: '+'
+//    implementation  group: 'org.bytedeco.javacpp-presets', name: 'opencv-platform', version: '+'
+//    implementation  group: 'org.bytedeco.javacpp-presets', name: 'ffmpeg-platform', version: '+'
 }
