@@ -14,6 +14,7 @@ import androidx.core.app.ActivityCompat;
 import androidx.core.content.ContextCompat;
 import com.jabistudio.androidjhlabs.filter.PosterizeFilter;
 import com.jabistudio.androidjhlabs.filter.SwimFilter;
+import com.jabistudio.androidjhlabs.filter.TransformFilter;
 import com.jabistudio.androidjhlabs.filter.util.AndroidUtils;
 import org.bytedeco.javacv.AndroidFrameConverter;
 import org.bytedeco.javacv.OpenCVFrameConverter;
@@ -27,6 +28,7 @@ import java.nio.IntBuffer;
 import java.util.Arrays;
 import java.util.List;
 
+import static android.graphics.Bitmap.createScaledBitmap;
 import static org.bytedeco.opencv.global.opencv_core.*;
 import static org.bytedeco.opencv.global.opencv_imgproc.*;
 
@@ -35,6 +37,39 @@ import static org.bytedeco.opencv.global.opencv_imgproc.*;
 
 public class FullscreenActivity extends Activity {
 
+
+    private Preview mPreview;
+    static int currentCameraId;
+
+    public static void setCameraDisplayOrientation(int rotation,int cameraId, android.hardware.Camera camera) {
+        android.hardware.Camera.CameraInfo info =
+                new android.hardware.Camera.CameraInfo();
+        android.hardware.Camera.getCameraInfo(cameraId, info);
+        int degrees = 0;
+        switch (rotation) {
+            case Surface.ROTATION_0:
+                degrees = 0;
+                break;
+            case Surface.ROTATION_90:
+                degrees = 90;
+                break;
+            case Surface.ROTATION_180:
+                degrees = 180;
+                break;
+            case Surface.ROTATION_270:
+                degrees = 270;
+                break;
+        }
+
+        int result;
+        if (info.facing == Camera.CameraInfo.CAMERA_FACING_FRONT) {
+            result = (info.orientation + degrees) % 360;
+            result = (360 - result) % 360;  // compensate the mirror
+        } else {  // back-facing
+            result = (info.orientation - degrees + 360) % 360;
+        }
+        camera.setDisplayOrientation(result);
+    }
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -45,13 +80,58 @@ public class FullscreenActivity extends Activity {
             ActivityCompat.requestPermissions(FullscreenActivity.this, new String[]{android.Manifest.permission.CAMERA}, 50);
         }
         try {
-            FrameLayout layout = new FrameLayout(this);
+            final FrameLayout layout = new FrameLayout(this);
             final FaceView faceView = new FaceView(this);
-            Preview mPreview = new Preview(this, faceView);
+            mPreview = new Preview(this, faceView);
+            faceView.preview = mPreview;
 
-            ToggleButton toggle = new ToggleButton(this);
+            Button buttonSnap = new Button(this);
+            buttonSnap.setOnClickListener(new Button.OnClickListener() {
+                @Override
+                public void onClick(View view) {
+                    System.out.println("snapped");
+                }
+            });
 
-            toggle.setOnCheckedChangeListener(new CompoundButton.OnCheckedChangeListener() {
+            ToggleButton toggleCam = new ToggleButton(this);
+            toggleCam.setOnCheckedChangeListener(new CompoundButton.OnCheckedChangeListener() {
+                public void onCheckedChanged(CompoundButton buttonView, boolean isChecked) {
+                    mPreview.mCamera.stopPreview();
+
+//NB: if you don't release the current camera before switching, you app will crash
+                    mPreview.mCamera.release();
+                    faceView.temp = null;
+                    faceView.image = null;
+
+                    Preview prev = new Preview(getApplicationContext(), faceView);
+                    faceView.preview = prev;
+//swap the id of the camera to be used
+                    if (currentCameraId == Camera.CameraInfo.CAMERA_FACING_BACK) {
+                        currentCameraId = Camera.CameraInfo.CAMERA_FACING_FRONT;
+                    } else {
+                        currentCameraId = Camera.CameraInfo.CAMERA_FACING_BACK;
+                    }
+                    prev.mCamera = prev.mCamera.open(currentCameraId);
+
+
+                    setCameraDisplayOrientation(FullscreenActivity.this.getWindowManager().getDefaultDisplay().getRotation(), currentCameraId, prev.mCamera);
+                    try {
+
+                        prev.mCamera.setPreviewDisplay(prev.mHolder);
+                    } catch (IOException e) {
+                        e.printStackTrace();
+                    }
+                    prev.mCamera.startPreview();
+                    int index = layout.indexOfChild(mPreview);
+                    layout.removeView(mPreview);
+                    layout.addView(prev, index);
+                    mPreview = prev;
+
+                }
+            });
+
+            ToggleButton toggleOn = new ToggleButton(this);
+            toggleOn.setOnCheckedChangeListener(new CompoundButton.OnCheckedChangeListener() {
                 public void onCheckedChanged(CompoundButton buttonView, boolean isChecked) {
                     if (isChecked) {
                         faceView.enable = true;
@@ -62,12 +142,17 @@ public class FullscreenActivity extends Activity {
             });
 
 //create a layout
-            LinearLayout layoutlin = new LinearLayout(this);
-            layoutlin.setOrientation(LinearLayout.VERTICAL);
-            layoutlin.addView(toggle);
+            LinearLayout layoutlin1 = new LinearLayout(this);
+            LinearLayout layoutlin2 = new LinearLayout(this);
+            layoutlin1.setOrientation(LinearLayout.VERTICAL);
+            layoutlin2.setOrientation(LinearLayout.HORIZONTAL);
+            layoutlin1.addView(layoutlin2);
+            layoutlin2.addView(toggleOn);
+            layoutlin2.addView(toggleCam);
+            layoutlin2.addView(buttonSnap);
             layout.addView(mPreview);
             layout.addView(faceView);
-            layout.addView(layoutlin);
+            layout.addView(layoutlin1);
             setContentView(layout);
         } catch (IOException e) {
             e.printStackTrace();
@@ -81,7 +166,7 @@ public class FullscreenActivity extends Activity {
 class FaceView extends View implements Camera.PreviewCallback {
 
     public boolean enable;
-    private IplImage image;
+    IplImage image;
 
     int LAPLACIAN_FILTER_SIZE = 5;
     int MEDIAN_BLUR_FILTER_SIZE = 7;
@@ -91,8 +176,7 @@ class FaceView extends View implements Camera.PreviewCallback {
     double sigmaSpace = 7; // Spatial strength. Affects speed.
     private IplImage gray;
     private IplImage edges;
-    private IplImage temp;
-    private IplImage temp1;
+    IplImage temp;
     SwimFilter sf = new SwimFilter();
     SwimFilter sf1 = new SwimFilter();
     PosterizeFilter glf = new PosterizeFilter();
@@ -102,16 +186,17 @@ class FaceView extends View implements Camera.PreviewCallback {
     OpenCVFrameConverter openconverter = new OpenCVFrameConverter.ToIplImage();
     AndroidFrameConverter androidFrameConverter = new AndroidFrameConverter();
     Paint paint = new Paint();
-    private int[] swim1Ints3;
-    private IplImage image1;
+    Preview preview;
+//    int zwidth = 640;
+//    int zheight = 480;
 
     public FaceView(FullscreenActivity context) throws IOException {
         super(context);
-
+        this.preview = preview;
         sf.setAmount(20f);
         sf.setTurbulence(1f);
-        sf.setEdgeAction(sf.CLAMP);
-        sf1.setEdgeAction(sf1.CLAMP);
+        sf.setEdgeAction(TransformFilter.CLAMP);
+        sf1.setEdgeAction(TransformFilter.CLAMP);
         sf1.setAmount(30f);
         sf1.setTurbulence(1f);
         sf1.setScale(300);
@@ -120,16 +205,16 @@ class FaceView extends View implements Camera.PreviewCallback {
     }
 
     public void onPreviewFrame(final byte[] data, final Camera camera) {
-
-
         try {
-            Size size = camera.getParameters().getPreviewSize();
-            processImage(rotateYUV420Degree90(data, size.width, size.height), size.height, size.width);
-            camera.addCallbackBuffer(data);
-        } catch (RuntimeException e) {
-            e.printStackTrace();
+//            Size size = camera.getParameters().getPreviewSize();
+
+            processImage(rotateYUV420Degree90(data, preview.mCamera.getParameters().getPreviewSize().width, preview.mCamera.getParameters().getPreviewSize().height), preview.mCamera.getParameters().getPreviewSize().height, preview.mCamera.getParameters().getPreviewSize().width);
+        } catch (ArrayIndexOutOfBoundsException e) {
+            //e.printStackTrace();
             // The camera has probably just been released, ignore.
         }
+        camera.addCallbackBuffer(data);
+
     }
 
     private byte[] rotateYUV420Degree90(byte[] data, int imageWidth, int imageHeight) {
@@ -156,130 +241,38 @@ class FaceView extends View implements Camera.PreviewCallback {
     }
 
     protected void processImage(byte[] data, int width, int height) {
-        if (!enable) return;
+        if (!enable || width == 0 || height == 0) return;
         // First, downsample our image and convert it into a grayscale IplImage
 
         if (image == null || image.width() != width || image.height() != height) {
             image = IplImage.create(width, height, IPL_DEPTH_8U, 3);
-////			colorImage1 = IplImage.create(width, height, IPL_DEPTH_8U, 4);
-//			bitmap = Bitmap.createBitmap(colorImage.width(), colorImage.height(), Bitmap.Config.ARGB_8888);
-//			_temp = new int[(width * height)];
             gray = IplImage.create(image.cvSize(), IPL_DEPTH_8U, 1);
             edges = IplImage.create(gray.cvSize(), gray.depth(), gray.nChannels());
             temp = IplImage.create(image.cvSize(), image.depth(), image.nChannels());
-            temp1 = IplImage.create(image.cvSize(), image.depth(), image.nChannels());
         }
 
-//		decodeYUV420SP(_temp, data, width, height);
-
-//        int f = 1;// SUBSAMPLING_FACTOR;
-
-        // First, downsample our image and convert it into a grayscale IplImage
-//		yuvImage = IplImage.create(width, height, IPL_DEPTH_8U, 3);
-
-//		int dataStride = width;
-//		int imageStride = colorImage.widthStep();
-//		ByteBuffer imageBuffer = colorImage.getByteBuffer();
-//		imageBuffer.put(data);
-////		for (int y = 0; y < height; y++) {
-////			int dataLine = y *dataStride;
-////			int imageLine = y * imageStride;
-////			for (int x = 0; x < width; x++) {
-////				imageBuffer.put(imageLine + x, data[dataLine + x]);
-////				imageBuffer.put(imageLine + x, data[dataLine + 3*x]);
-////				imageBuffer.put(imageLine + x,(data[dataLine + x] & 0xFF) | ((data[dataLine + x] & 0xFF) << 8) | ((data[dataLine + x] & 0xFF) << 16));
-////				imageBuffer.put(imageLine + 3*x+1, data[dataLine + x]);
-////				imageBuffer.put(imageLine + 3*x+2, data[dataLine + x]);
-////				_temp[dataLine+x/3]=(data[dataLine + x] & 0xFF) | ((data[dataLine + x+1] & 0xFF) << 8) | ((data[dataLine + x+2] & 0xFF) << 16);
-////			}
-////		}
-//        if (yuvImage==null){
-//        	yuvImage = new Frame(width, height, Frame.DEPTH_UBYTE, 2);
-//		}
-//        ((ByteBuffer) yuvImage.image[0].position(0)).put(data);
         image = openconverter.convertToIplImage(converter.convert(data, width, height));
 
         ByteBuffer buffer = image.getByteBuffer();
-//        buffer.position(0);
-        int img_vec[] = new int[image.width() * image.height()];
+        int[] img_vec = new int[image.width() * image.height()];
 //
         for (int i = 0; i < image.width(); i++) {
             for (int j = 0; j < image.height(); j++) {
-//                int ind = i * image.widthStep() + j;
-//                img_vec[i*image.height()+j] = (buffer.get());
-//                img_vec[i * image.height() + j] = (buffer.get(ind) & 0xFF) | ((buffer.get(ind + 1) & 0xFF) << 8) | ((buffer.get(ind + 2) & 0xFF) << 16);
                 img_vec[i * image.height() + j] = 0xFF << 24 | ((buffer.get() & 0xFF)) << 16 | ((buffer.get() & 0xFF) << 8) | ((buffer.get() & 0xFF));
-//                img_vec[i * image.height() + j] = (0xff << 24) | ( 0xFF) | (( 0xFF) << 8) | (( 0xFF) << 16);
-//                System.out.println(i+"\t"+j+"\t"+img_vec[i * image.height() + j]);
             }
         }
-//        image.imageData().position(0);
 
 
         int[] swim1Ints2 = sf.filter(img_vec, image.width(), image.height());
-        swim1Ints3 = sf1.filter(swim1Ints2, image.width(), image.height());
+        int[] swim1Ints3 = sf1.filter(swim1Ints2, image.width(), image.height());
         Bitmap bitmap1 = Bitmap.createBitmap(image.width(), image.height(), Bitmap.Config.ARGB_8888);
         bitmap1.copyPixelsFromBuffer(IntBuffer.wrap(swim1Ints3));
-        image1 = openconverter.convertToIplImage(androidFrameConverter.convert(bitmap1));
+        IplImage image1 = openconverter.convertToIplImage(androidFrameConverter.convert(bitmap1));
         cvCvtColor(image1, image, CV_RGBA2RGB);
-
-//        ((IntBuffer)image.getIntBuffer().position(0)).put(IntBuffer.wrap(swim1Ints3));
-
-//        Mat mat=new Mat(image.width(),image.height(), CvType.CV_64F);
-//        mat.
-//        mat.put(0,0,img_vec);
-//        image=new IplImage();
-
-//        ((ByteBuffer)image.getByteBuffer().position(0)).put(integersToBytes(swim1Ints3));
-//        ((IntBuffer)image.getIntBuffer().position(0)).put(swim1Ints3);
-//IplImage i2=new IplImage(swim1Ints3);
-//        image= mat.asIplImage();
-//        image.imageData().put(integersToBytes(img_vec));
-//        image=new IplImage(new Mat());
-
-//		int[] swimfilter1=converter.
-
-//        image = render(render(colorImage, sf), sf1);
         cvCvtColor(image, gray, CV_BGR2GRAY);
         cvSmooth(gray, gray, CV_MEDIAN, MEDIAN_BLUR_FILTER_SIZE, 0, 0, 0);
         cvLaplace(gray, edges, LAPLACIAN_FILTER_SIZE);
         cvThreshold(edges, edges, 80, 255, CV_THRESH_BINARY_INV);
-//			 cvErode(edges, edges, null,2);
-//			 cvDilate(edges, edges, null,1);
-        // create contours around white regions
-//			CvSeq contour = new CvSeq();
-//			CvMemStorage storage = CvMemStorage.create();
-//			cvSmooth(edges, edges, CV_MEDIAN, MEDIAN_BLUR_FILTER_SIZE, 0, 0, 0);
-//			cvNot(edges,edges);
-
-//			cvFindContours(edges, storage, contour,
-//					Loader.sizeof(CvContour.class), CV_RETR_TREE,
-//					com.googlecode.javacv.cpp.opencv_imgproc.CV_CHAIN_APPROX_SIMPLE);// CV_CHAIN_APPROX_SIMPLE);
-//			// loop through all detected contours
-//			cvZero(edges);
-//			for (; contour != null && !contour.isNull(); contour = contour.h_next()) {
-////				CvSeq approx = cvApproxPoly(contour,
-////						Loader.sizeof(CvContour.class), storage, CV_POLY_APPROX_DP,
-////						cvContourPerimeter(contour) * 0.001, 0);
-////				CvRect rec = cvBoundingRect(contour, 0);
-////					if (rec.height() > recthighgap && rec.width() > rectwidthgap) {
-//				int area= Math.abs((int) cvContourArea(contour, CV_WHOLE_SEQ, -1));
-//				int perimeter=(int) cvArcLength(contour, CV_WHOLE_SEQ, -1)+1;
-//
-//				if (perimeter>100&&area>100&& area/perimeter==0){
-////					System.out.println(area+"\t"+perimeter+"\t"+(area/perimeter));
-////						CvMemStorage storage1 = CvMemStorage.create();
-////						CvSeq convexContour = cvConvexHull2(contour, storage1,
-////								CV_CLOCKWISE, 1);
-//						cvDrawContours(edges, contour, CvScalar.WHITE,
-//								CvScalar.WHITE, 127,1, 8);
-//					}
-//			}
-//			cvNot(edges,edges);
-
-        System.out.println(image.cvSize() + "\t" + temp.cvSize());
-        System.out.println(image.nChannels() + "\t" + temp.nChannels());
-        System.out.println(image.depth() + "\t" + temp.depth());
         temp = IplImage.create(image.cvSize(), image.depth(), image.nChannels());
         for (int i = 0; i < repetitions; i++) {
             cvSmooth(image, temp, CV_BILATERAL, ksize, 0, sigmaColor, sigmaSpace);
@@ -287,36 +280,8 @@ class FaceView extends View implements Camera.PreviewCallback {
         }
         cvZero(temp);
         cvCopy(image, temp, edges);
-        sf.setTime(t1 += .102f);
-        sf1.setTime(t2 += .102f);
-
-//		colorImage.getIntBuffer().put(_temp);
-//		colorImage.getByteBuffer().put(_temp);
-
-//		IplImage yuvimage = IplImage.create(width, height * 3 / 2, IPL_DEPTH_8U, 2);
-//		IplImage rgbimage = IplImage.create(width, height, IPL_DEPTH_8U, 3);
-//		cvCvtColor(yuvimage, rgbimage, CV_YUV2BGR_NV21);
-//
-//		IplImage r = IplImage.create(colorImage.width(), colorImage.height(), colorImage.depth(), CV_8UC1);
-//		IplImage g = IplImage.create(colorImage.width(), colorImage.height(), colorImage.depth(), CV_8UC1);
-//		IplImage b = IplImage.create(colorImage.width(), colorImage.height(), colorImage.depth(), CV_8UC1);
-//		cvSplit(colorImage, r, g, b, null);
-//		cvMerge(r, g, b, null, colorImage);
-
-//        cvCvtColor(image, gray1, CV_BGR2GRAY);
-//        cvConvertScale(gray1, gray, 255, 0);
-//        cvSmooth(gray, gray, CV_MEDIAN, MEDIAN_BLUR_FILTER_SIZE, 0, 0, 0);
-//////
-//        cvLaplace(gray, edges, LAPLACIAN_FILTER_SIZE);
-//        cvThreshold(edges, edges, 80, 255, CV_THRESH_BINARY_INV);
-//        for (int i = 0; i < repetitions; i++) {
-//            cvSmooth(image, temp, CV_BILATERAL, ksize, 0, sigmaColor, sigmaSpace);
-//            cvSmooth(temp, image, CV_BILATERAL, ksize, 0, sigmaColor, sigmaSpace);
-//        }
-//        cvZero(temp);
-//        cvCopy(image, temp, edges);
-//        cvCvtColor(temp, temp1, CV_BGR2BGRA);
-        postInvalidate();
+        sf.setTime(t1 += .02f);
+        sf1.setTime(t2 += .02f);
     }
 
     public int[] toArray(IntBuffer b) {
@@ -454,40 +419,14 @@ class FaceView extends View implements Camera.PreviewCallback {
 //			ByteBuffer bb = colorImage.getByteBuffer();
 //			bitmap.copyPixelsToBuffer(bb);
 //			bitmap=converter.convert(openconverter.convert(colorImage));
-        if (enable && image != null) {
+        if (enable && temp != null && !temp.isNull() && temp.width() > 0 && temp.height() > 0) {
             paint.setColor(Color.WHITE);
-            paint.setStrokeWidth(5);
-
-            int ww = canvas.getWidth();
-            int hh = canvas.getHeight();
-            int x0 = 0;//-ww/4;
-            int y0 = 0;//-hh/4;
-//			ww+=ww/2;
-//			hh+=hh/2;
-
-//			x0+=10;
-//			y0+=10;
-//			x0-=320;
-//			ww-=320;
-//            y0 += canvas.getHeight() / 2;//-temp.height()/2;
-//            hh += canvas.getHeight() / 2;//-temp.height()/2;
-//			ww-=10;
-//			hh-=10;
             Bitmap bitmap = converter.convert(openconverter.convert(temp));
-//            Bitmap bitmap1=Bitmap.createBitmap(bitmap.getWidth(), bitmap.getHeight(), Bitmap.Config.ARGB_8888);
             int[] swim1Ints1 = AndroidUtils.bitmapToIntArray(bitmap);
             int[] swim1Ints2 = glf.filter(swim1Ints1, bitmap.getWidth(), bitmap.getHeight());
             bitmap.copyPixelsFromBuffer(IntBuffer.wrap(swim1Ints2));
-//            if (swim1Ints3!=null){
-//                bitmap.copyPixelsFromBuffer(IntBuffer.wrap(swim1Ints3));
-//            }
-            bitmap = Bitmap.createScaledBitmap(bitmap, canvas.getWidth(), canvas.getHeight(), true);
-
-            canvas.drawBitmap(bitmap, x0, y0, paint);
-//            canvas.drawLine(x0, y0, ww, y0, paint);
-//            canvas.drawLine(x0, hh, ww, hh, paint);
-//            canvas.drawLine(x0, y0, x0, hh, paint);
-//            canvas.drawLine(ww, y0, ww, hh, paint);
+            bitmap = createScaledBitmap(bitmap, getWidth(), getHeight(), true);
+            canvas.drawBitmap(bitmap, 0, 0, paint);
         }
         this.invalidate();
     }
@@ -530,7 +469,7 @@ class Preview extends SurfaceView implements SurfaceHolder.Callback {
     public void surfaceCreated(SurfaceHolder holder) {
         // The Surface has been created, acquire the camera and tell it where
         // to draw.
-        mCamera = Camera.open(0);
+        mCamera = Camera.open(FullscreenActivity.currentCameraId);
         try {
             mCamera.setPreviewDisplay(holder);
         } catch (IOException exception) {
@@ -588,35 +527,36 @@ class Preview extends SurfaceView implements SurfaceHolder.Callback {
         Camera.Parameters parameters = mCamera.getParameters();
 
         List<Size> sizes = parameters.getSupportedPreviewSizes();
-        Size optimalSize = getOptimalPreviewSize(sizes, w, h);
+        Size optimalSize = getOptimalPreviewSize(sizes, 100, 300);
         parameters.setPreviewSize(optimalSize.width, optimalSize.height);
 
-        Camera.CameraInfo info = new Camera.CameraInfo();
-        Camera.getCameraInfo(Camera.CameraInfo.CAMERA_FACING_BACK, info);
-        int rotation = ((Activity) getContext()).getWindowManager().getDefaultDisplay().getRotation();
-        int degrees = 0;
-        switch (rotation) {
-            case Surface.ROTATION_0:
-                degrees = 0;
-                break; //Natural orientation
-            case Surface.ROTATION_90:
-                degrees = 90;
-                break; //Landscape left
-            case Surface.ROTATION_180:
-                degrees = 180;
-                break;//Upside down
-            case Surface.ROTATION_270:
-                degrees = 270;
-                break;//Landscape right
-        }
-        int rotate = (info.orientation - degrees + 360) % 360;
+//        Camera.CameraInfo info = new Camera.CameraInfo();
+//        Camera.getCameraInfo(Camera.CameraInfo.CAMERA_FACING_BACK, info);
+        int rotation = 0;//((Activity) getContext()).getWindowManager().getDefaultDisplay().getRotation();
+//        int degrees = 0;
+//        switch (rotation) {
+//            case Surface.ROTATION_0:
+//                degrees = 0;
+//                break; //Natural orientation
+//            case Surface.ROTATION_90:
+//                degrees = 90;
+//                break; //Landscape left
+//            case Surface.ROTATION_180:
+//                degrees = 180;
+//                break;//Upside down
+//            case Surface.ROTATION_270:
+//                degrees = 270;
+//                break;//Landscape right
+//        }
+//        int rotate = (info.orientation - degrees + 360) % 360;
 
 //STEP #2: Set the 'rotation' parameter
 //        Camera.Parameters params = mCamera.getParameters();
-        parameters.setRotation(rotate);
-
+//        parameters.setRotation(rotate);
+//
         mCamera.setParameters(parameters);
-        mCamera.setDisplayOrientation(rotate);
+//        mCamera.setDisplayOrientation(rotate);
+        FullscreenActivity.setCameraDisplayOrientation(rotation,FullscreenActivity.currentCameraId, mCamera);
         if (previewCallback != null) {
             mCamera.setPreviewCallbackWithBuffer(previewCallback);
             Size size = parameters.getPreviewSize();
