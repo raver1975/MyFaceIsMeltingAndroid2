@@ -1,19 +1,25 @@
 package com.example.myfaceismelting;
 
+import android.annotation.SuppressLint;
 import android.app.Activity;
 import android.app.AlertDialog;
+import android.content.ContentValues;
 import android.content.Context;
+import android.content.Intent;
 import android.content.pm.PackageManager;
 import android.graphics.*;
-import android.graphics.drawable.BitmapDrawable;
 import android.hardware.Camera;
 import android.hardware.Camera.Size;
 import android.hardware.camera2.CameraAccessException;
 import android.hardware.camera2.CameraCharacteristics;
 import android.hardware.camera2.CameraManager;
+import android.net.Uri;
 import android.os.Bundle;
-import android.util.DisplayMetrics;
+import android.os.Handler;
+import android.os.Looper;
+import android.provider.MediaStore;
 import android.util.Log;
+import android.util.SparseIntArray;
 import android.view.*;
 import android.widget.*;
 import androidx.core.app.ActivityCompat;
@@ -21,22 +27,23 @@ import androidx.core.content.ContextCompat;
 import com.jabistudio.androidjhlabs.filter.PosterizeFilter;
 import com.jabistudio.androidjhlabs.filter.SwimFilter;
 import com.jabistudio.androidjhlabs.filter.TransformFilter;
-import com.jabistudio.androidjhlabs.filter.util.AndroidUtils;
-import org.bytedeco.flycapture.FlyCapture2.CameraInfo;
 import org.bytedeco.javacv.AndroidFrameConverter;
 import org.bytedeco.javacv.OpenCVFrameConverter;
 import org.bytedeco.opencv.opencv_core.IplImage;
+import org.bytedeco.opencv.opencv_core.Mat;
+import org.bytedeco.opencv.opencv_core.Point2f;
 
-import java.io.ByteArrayOutputStream;
-import java.io.DataOutputStream;
-import java.io.IOException;
+
+import java.io.*;
+import java.nio.Buffer;
 import java.nio.ByteBuffer;
 import java.nio.IntBuffer;
-import java.util.Arrays;
 import java.util.List;
 
+import static android.content.Intent.FLAG_ACTIVITY_NEW_TASK;
 import static android.graphics.Bitmap.createScaledBitmap;
 import static org.bytedeco.opencv.global.opencv_core.*;
+import static org.bytedeco.opencv.global.opencv_imgcodecs.imdecode;
 import static org.bytedeco.opencv.global.opencv_imgproc.*;
 
 
@@ -45,53 +52,13 @@ import static org.bytedeco.opencv.global.opencv_imgproc.*;
 public class FullscreenActivity extends Activity {
 
 
+    public static int cameraRotation;
     private Preview mPreview;
     static int currentCameraId;
-    static int orientation;
-
-    public static void setCameraDisplayOrientation(int cameraId, android.hardware.Camera camera) {
-        int result;
-        android.hardware.Camera.CameraInfo info =
-                new android.hardware.Camera.CameraInfo();
-        android.hardware.Camera.getCameraInfo(cameraId, info);
-        if (info.facing == Camera.CameraInfo.CAMERA_FACING_FRONT) {
-            result = (360-FullscreenActivity.orientation) % 360;
-            if (FullscreenActivity.orientation==90){
-                result = 0;
-            }
-            else if (FullscreenActivity.orientation==270){
-                result = 90;
-            }
-
-//            result = (360 - result) % 360;  // compensate the mirror
-        } else {  // back-facing
-            result = (info.orientation + 360) % 360;
-        }
-        camera.setDisplayOrientation(result);
-    }
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
-        CameraManager manager = null;
-        if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.LOLLIPOP) {
-            manager = (CameraManager) getSystemService(Context.CAMERA_SERVICE);
-            try {
-                for (String id : manager.getCameraIdList()) {
-                    CameraCharacteristics characteristics = null;
-                    try {
-                        characteristics = manager.getCameraCharacteristics(id);
-                    } catch (CameraAccessException e) {
-                        e.printStackTrace();
-                    }
-                    orientation = characteristics.get(CameraCharacteristics.SENSOR_ORIENTATION);
-                    System.out.println("camera sensor orientation is " + orientation);
-                }
-            } catch (CameraAccessException e) {
-                e.printStackTrace();
-            }
-        }
-
         requestWindowFeature(Window.FEATURE_NO_TITLE);
         getWindow().addFlags(WindowManager.LayoutParams.FLAG_FULLSCREEN);
         if (ContextCompat.checkSelfPermission(getApplicationContext(), android.Manifest.permission.CAMERA) != PackageManager.PERMISSION_GRANTED) {
@@ -101,14 +68,53 @@ public class FullscreenActivity extends Activity {
             final FrameLayout layout = new FrameLayout(this);
             final FaceView faceView = new FaceView(this);
             mPreview = new Preview(this, faceView);
-            faceView.preview = mPreview;
-
-            Button buttonSnap = new Button(this);
-            buttonSnap.setOnClickListener(new Button.OnClickListener() {
+            mPreview.setOnClickListener(new View.OnClickListener() {
                 @Override
                 public void onClick(View view) {
-                    System.out.println("snapped");
+
                 }
+            });
+            faceView.preview = mPreview;
+
+
+            faceView.setOnClickListener(new Button.OnClickListener() {
+                @Override
+                public void onClick(View view) {
+                    new Handler(Looper.getMainLooper()).post(new Runnable() {
+                        @Override
+                        public void run() {
+                            mPreview.mCamera.takePicture(new Camera.ShutterCallback() {
+                                                             @Override
+                                                             public void onShutter() {
+                                                             }
+                                                         }
+                                    , new Camera.PictureCallback() {
+                                        @Override
+                                        public void onPictureTaken(byte[] bytes, Camera camera) {
+                                        }
+                                    }, new Camera.PictureCallback() {
+                                        @Override
+                                        public void onPictureTaken(byte[] bytes, Camera camera) {
+                                            System.out.println("image coming in");
+                                            boolean enableMemory = faceView.enable;
+                                            faceView.enable = true;
+                                            Mat ma = new Mat(bytes);
+                                            faceView.image = new IplImage(imdecode(ma, 1));
+                                            faceView.processImage(null, camera.getParameters().getPictureSize().width, camera.getParameters().getPictureSize().height);
+                                            faceView.enable = enableMemory;
+//                                            System.out.println("2" + faceView.outputImage);
+                                            System.out.println("snapped");
+                                            faceView.shareImage();
+
+                                            mPreview.mCamera.startPreview();
+                                        }
+                                    });
+
+                        }
+                    });
+
+                }
+
             });
 
             ToggleButton toggleCam = new ToggleButton(this);
@@ -121,7 +127,7 @@ public class FullscreenActivity extends Activity {
 
 //NB: if you don't release the current camera before switching, you app will crash
 //                    mPreview.mCamera.release();
-                    faceView.temp = null;
+                    faceView.outputImage = null;
                     faceView.image = null;
 
                     Preview prev = new Preview(getApplicationContext(), faceView);
@@ -134,8 +140,11 @@ public class FullscreenActivity extends Activity {
                     }
                     prev.mCamera = prev.mCamera.open(currentCameraId);
 
+//                    prev.mCamera.setDisplayOrientation(cameraRotation);
 
-                    setCameraDisplayOrientation(currentCameraId, prev.mCamera);
+
+//                    System.out.println("setting camera rotation:"+FullscreenActivity.cameraRotation);
+//                    prev.mCamera.setDisplayOrientation(FullscreenActivity.cameraRotation);
 //                    setCameraDisplayOrientation(FullscreenActivity.orientation, currentCameraId, prev.mCamera);
                     try {
 
@@ -148,7 +157,7 @@ public class FullscreenActivity extends Activity {
                     layout.removeView(mPreview);
                     layout.addView(prev, index);
                     mPreview = prev;
-
+                    //prev.surfaceChanged();
                 }
             });
 
@@ -206,7 +215,7 @@ class FaceView extends View implements Camera.PreviewCallback {
     double sigmaSpace = 7; // Spatial strength. Affects speed.
     private IplImage gray;
     private IplImage edges;
-    IplImage temp;
+    IplImage outputImage;
     SwimFilter sf = new SwimFilter();
     SwimFilter sf1 = new SwimFilter();
     PosterizeFilter glf = new PosterizeFilter();
@@ -217,15 +226,18 @@ class FaceView extends View implements Camera.PreviewCallback {
     AndroidFrameConverter androidFrameConverter = new AndroidFrameConverter();
     Paint paint = new Paint();
     Preview preview;
+    private IplImage temp;
 //    int zwidth = 640;
 //    int zheight = 480;
 
     public FaceView(FullscreenActivity context) throws IOException {
         super(context);
         this.preview = preview;
-        sf.setAmount(20f);
+        sf.setAmount(8f);
         sf.setTurbulence(1f);
         sf.setEdgeAction(TransformFilter.RGB_CLAMP);
+//        sf.setScale(10);
+//        sf.setStretch(10);
         sf1.setEdgeAction(TransformFilter.RGB_CLAMP);
         sf1.setAmount(30f);
         sf1.setTurbulence(1f);
@@ -236,45 +248,14 @@ class FaceView extends View implements Camera.PreviewCallback {
 
     public void onPreviewFrame(byte[] data, final Camera camera) {
         try {
-            int hh = preview.mCamera.getParameters().getPreviewSize().width;
-            int ww = preview.mCamera.getParameters().getPreviewSize().height;
-            if (FullscreenActivity.currentCameraId == 0) {
-                data = rotateYUV420Degree90(data, preview.mCamera.getParameters().getPreviewSize().width, preview.mCamera.getParameters().getPreviewSize().height);
-            } else {
-//                hh = preview.mCamera.getParameters().getPreviewSize().width;
-//                ww = preview.mCamera.getParameters().getPreviewSize().height;
-                android.hardware.Camera.CameraInfo info =
-                        new android.hardware.Camera.CameraInfo();
-                android.hardware.Camera.getCameraInfo(FullscreenActivity.currentCameraId, info);
-//                System.out.println("surface rotation:" + FullscreenActivity.orientation + "\t" + info.orientation);
-                switch ((FullscreenActivity.orientation) % 360) {
-                    case 0:
-//                        data = rotateYUV420Degree270(data, preview.mCamera.getParameters().getPreviewSize().width, preview.mCamera.getParameters().getPreviewSize().height);
-//                        data = rotateYUV420Degree180(data, preview.mCamera.getParameters().getPreviewSize().width, preview.mCamera.getParameters().getPreviewSize().height);
-                        ww = preview.mCamera.getParameters().getPreviewSize().width;
-                        hh = preview.mCamera.getParameters().getPreviewSize().height;
-                        break;
-                    case 90:
-//                        data = rotateYUV420Degree90(data, preview.mCamera.getParameters().getPreviewSize().width, preview.mCamera.getParameters().getPreviewSize().height);
-                        ww = preview.mCamera.getParameters().getPreviewSize().width;
-                        hh = preview.mCamera.getParameters().getPreviewSize().height;
-                        break;
-                    case 180:
-                        data = rotateYUV420Degree180(data, preview.mCamera.getParameters().getPreviewSize().width, preview.mCamera.getParameters().getPreviewSize().height);
-                        ww = preview.mCamera.getParameters().getPreviewSize().width;
-                        hh = preview.mCamera.getParameters().getPreviewSize().height;
-                        break;
-                    case 270:
-                        data = rotateYUV420Degree270(data, preview.mCamera.getParameters().getPreviewSize().width, preview.mCamera.getParameters().getPreviewSize().height);
-                        hh = preview.mCamera.getParameters().getPreviewSize().width;
-                        ww = preview.mCamera.getParameters().getPreviewSize().height;
-                        break;
-                }
-
-            }
-
+            int ww = camera.getParameters().getPreviewSize().width;
+            int hh = camera.getParameters().getPreviewSize().height;
+//            boolean landscape = getResources().getConfiguration().orientation == Configuration.ORIENTATION_LANDSCAPE;
+//            boolean landscape = getResources().getConfiguration().orientation == Configuration.ORIENTATION_LANDSCAPE;
             processImage(data, ww, hh);
-        } catch (ArrayIndexOutOfBoundsException e) {
+        } catch (RuntimeException e) {
+            System.out.println("----------------------------------");
+            e.printStackTrace();
             //e.printStackTrace();
             // The camera has probably just been released, ignore.
         }
@@ -356,46 +337,108 @@ class FaceView extends View implements Camera.PreviewCallback {
         return rotateYUV420Degree180(yuv, imageWidth, imageHeight);
     }
 
-    protected void processImage(byte[] data, int width, int height) {
+    synchronized void processImage(byte[] data, int width, int height) {
         if (!enable || width == 0 || height == 0) return;
         // First, downsample our image and convert it into a grayscale IplImage
+        int rotate = FullscreenActivity.cameraRotation;
 
-        if (image == null || image.width() != width || image.height() != height) {
-            image = IplImage.create(width, height, IPL_DEPTH_8U, 3);
-            gray = IplImage.create(image.cvSize(), IPL_DEPTH_8U, 1);
+        int hh = width;
+        int ww = height;
+        switch ((360 + rotate) % 360) {
+            case 0:
+//                        data = rotateYUV420Degree270(data, preview.mCamera.getParameters().getPreviewSize().width, preview.mCamera.getParameters().getPreviewSize().height);
+//                        data = rotateYUV420Degree180(data, preview.mCamera.getParameters().getPreviewSize().width, preview.mCamera.getParameters().getPreviewSize().height);
+                ww = width;
+                hh = height;
+                break;
+            case 90:
+                hh = width;
+                ww = height;
+                if (data != null) {
+                    data = rotateYUV420Degree90(data, preview.mCamera.getParameters().getPreviewSize().width, preview.mCamera.getParameters().getPreviewSize().height);
+                } else {
+                    Mat rotation_matrix = getRotationMatrix2D(new Point2f(ww / 2, hh / 2), 90, 1.0);
+                    Mat ma = new Mat(image);
+                    Mat ma1 = new Mat();
+                    warpAffine(ma, ma1, rotation_matrix, new org.bytedeco.opencv.opencv_core.Size(image.width(), image.height()));
+                    image = new IplImage(ma1);
+                }
+                break;
+            case 180:
+                ww = width;
+                hh = height;
+                if (data != null) {
+                    data = rotateYUV420Degree180(data, preview.mCamera.getParameters().getPreviewSize().width, preview.mCamera.getParameters().getPreviewSize().height);
+                } else {
+                    Mat rotation_matrix = getRotationMatrix2D(new Point2f(ww / 2, hh / 2), 180, 1.0);
+                    Mat ma = new Mat(image);
+                    Mat ma1 = new Mat();
+                    warpAffine(ma, ma1, rotation_matrix, new org.bytedeco.opencv.opencv_core.Size(image.width(), image.height()));
+                    image = new IplImage(ma1);
+                }
+
+                break;
+            case 270:
+                hh = width;
+                ww = height;
+                if (data != null) {
+                    data = rotateYUV420Degree270(data, preview.mCamera.getParameters().getPreviewSize().width, preview.mCamera.getParameters().getPreviewSize().height);
+                } else {
+                    Mat rotation_matrix = getRotationMatrix2D(new Point2f(ww / 2, hh / 2), 270, 1.0);
+                    Mat ma = new Mat(image);
+                    Mat ma1 = new Mat();
+                    warpAffine(ma, ma1, rotation_matrix, new org.bytedeco.opencv.opencv_core.Size(image.width(), image.height()));
+                    image = new IplImage(ma1);
+                }
+                break;
+        }
+        width = ww;
+        height = hh;
+
+        if (data != null) {
+            if (image == null || image.width() != width || image.height() != height) {
+                gray = IplImage.create(width, height, IPL_DEPTH_8U, 1);
+                edges = IplImage.create(gray.cvSize(), gray.depth(), gray.nChannels());
+                outputImage = IplImage.create(width, height, IPL_DEPTH_8U, 3);
+                temp = IplImage.create(width, height, IPL_DEPTH_8U, 3);
+            }
+            image = openconverter.convertToIplImage(converter.convert(data, width, height));
+        } else {
+            gray = IplImage.create(image.cvSize(), image.depth(), 1);
             edges = IplImage.create(gray.cvSize(), gray.depth(), gray.nChannels());
+            outputImage = IplImage.create(image.cvSize(), image.depth(), 3);
             temp = IplImage.create(image.cvSize(), image.depth(), image.nChannels());
         }
 
-        image = openconverter.convertToIplImage(converter.convert(data, width, height));
 
         ByteBuffer buffer = image.getByteBuffer();
         int[] img_vec = new int[image.width() * image.height()];
 //
-        for (int i = 0; i < image.width(); i++) {
+        for (
+                int i = 0; i < image.width(); i++) {
             for (int j = 0; j < image.height(); j++) {
                 img_vec[i * image.height() + j] = 0xFF << 24 | ((buffer.get() & 0xFF)) << 16 | ((buffer.get() & 0xFF) << 8) | ((buffer.get() & 0xFF));
             }
         }
-
-
         int[] swim1Ints2 = sf.filter(img_vec, image.width(), image.height());
         int[] swim1Ints3 = sf1.filter(swim1Ints2, image.width(), image.height());
         Bitmap bitmap1 = Bitmap.createBitmap(image.width(), image.height(), Bitmap.Config.ARGB_8888);
         bitmap1.copyPixelsFromBuffer(IntBuffer.wrap(swim1Ints3));
-        IplImage image1 = openconverter.convertToIplImage(androidFrameConverter.convert(bitmap1));
-        cvCvtColor(image1, image, CV_RGBA2BGR);
-        cvCvtColor(image, gray, CV_BGR2GRAY);
+        cvCvtColor(openconverter.convertToIplImage(androidFrameConverter.convert(bitmap1)), temp, CV_RGBA2BGR);
+        cvCvtColor(temp, gray, CV_BGR2GRAY);
         cvSmooth(gray, gray, CV_MEDIAN, MEDIAN_BLUR_FILTER_SIZE, 0, 0, 0);
         cvLaplace(gray, edges, LAPLACIAN_FILTER_SIZE);
         cvThreshold(edges, edges, 80, 255, CV_THRESH_BINARY_INV);
-        temp = IplImage.create(image.cvSize(), image.depth(), image.nChannels());
-        for (int i = 0; i < repetitions; i++) {
-            cvSmooth(image, temp, CV_BILATERAL, ksize, 0, sigmaColor, sigmaSpace);
-            cvSmooth(temp, image, CV_BILATERAL, ksize, 0, sigmaColor, sigmaSpace);
+        outputImage = IplImage.create(image.cvSize(), image.depth(), image.nChannels());
+        for (
+                int i = 0;
+                i < repetitions; i++) {
+            cvSmooth(temp, outputImage, CV_BILATERAL, ksize, 0, sigmaColor, sigmaSpace);
+            cvSmooth(outputImage, image, CV_BILATERAL, ksize, 0, sigmaColor, sigmaSpace);
         }
-        cvZero(temp);
-        cvCopy(image, temp, edges);
+
+        cvZero(outputImage);
+        cvCopy(image, outputImage, edges);
         sf.setTime(t1 += .02f);
         sf1.setTime(t2 += .02f);
     }
@@ -410,9 +453,9 @@ class FaceView extends View implements Camera.PreviewCallback {
 //        String s = "FacePreview - This side up." + Math.random();
 //        float textWidth = paint.measureText(s);
 //        canvas.drawText(s, (getWidth() - textWidth) / 2, 20, paint);
-        if (enable && temp != null && !temp.isNull() && temp.width() > 0 && temp.height() > 0) {
+        if (enable && outputImage != null && !outputImage.isNull() && outputImage.width() > 0 && outputImage.height() > 0) {
             paint.setColor(Color.WHITE);
-            Bitmap bitmap = converter.convert(openconverter.convert(temp));
+            Bitmap bitmap = converter.convert(openconverter.convert(outputImage));
             /*//---------------------------
             int[] swim1Ints1 = AndroidUtils.bitmapToIntArray(bitmap);
             int[] swim1Ints2 = glf.filter(swim1Ints1, bitmap.getWidth(), bitmap.getHeight());
@@ -432,17 +475,102 @@ class FaceView extends View implements Camera.PreviewCallback {
 //            } else {
 ////                canvas.scale(1,1);
 //            }
-            Matrix flipHorizontalMatrix = new Matrix();
-            if (FullscreenActivity.currentCameraId == 1&&FullscreenActivity.orientation!=270) {
-                flipHorizontalMatrix.setScale(-1, 1);
-                flipHorizontalMatrix.postTranslate(canvas.getWidth(), 0);
+//            Matrix flipHorizontalMatrix = new Matrix();
+//            if (FullscreenActivity.currentCameraId == 1) {
+//                flipHorizontalMatrix.setScale(-1, 1);
+//                flipHorizontalMatrix.postTranslate(canvas.getWidth(), 0);
+//            }
+            try {
+                final Matrix bitmapMatrix = new Matrix();
+
+                switch (preview.exifOrientation) {
+                    case 1:
+                        break;  // top left
+                    case 2:
+                        bitmapMatrix.postScale(-1, 1);
+                        break;  // top right
+                    case 3:
+                        bitmapMatrix.postRotate(180);
+                        break;  // bottom right
+                    case 4:
+                        bitmapMatrix.postRotate(180);
+                        bitmapMatrix.postScale(-1, 1);
+                        break;  // bottom left
+                    case 5:
+                        bitmapMatrix.postRotate(90);
+                        bitmapMatrix.postScale(-1, 1);
+                        break;  // left top
+                    case 6:
+                        bitmapMatrix.postRotate(90);
+                        break;  // right top
+                    case 7:
+                        bitmapMatrix.postRotate(270);
+                        bitmapMatrix.postScale(-1, 1);
+                        break;  // right bottom
+                    case 8:
+                        bitmapMatrix.postRotate(270);
+                        break;  // left bottom
+                    default:
+                        break;  // Unknown
+                }
+
+                if (FullscreenActivity.currentCameraId == 1) {
+//                    bitmapMatrix.preRotate(270);
+                    bitmapMatrix.postScale(-1, 1);
+                    bitmapMatrix.postTranslate(canvas.getWidth(), 0);
+                } else {
+//                    bitmapMatrix.preRotate(90);
+                }
+
+                // Create new bitmap.
+                bitmap = Bitmap.createBitmap(bitmap, 0, 0, bitmap.getWidth(), bitmap.getHeight(), bitmapMatrix, false);
+                bitmap = createScaledBitmap(bitmap, getWidth(), getHeight(), true);
+                canvas.drawBitmap(bitmap, 0, 0, paint);
+//                canvas.drawBitmap(transformedBitmap, flipHorizontalMatrix, paint);
+            } catch (Exception e) {
+                // TODO: handle exception
             }
-            canvas.drawBitmap(bitmap, flipHorizontalMatrix, paint);
 
         }
         this.invalidate();
     }
 
+    @SuppressLint("WrongThread")
+    public synchronized void shareImage() {
+        ByteBuffer buffer = outputImage.getByteBuffer();
+        int[] img_vec = new int[outputImage.width() * outputImage.height()];
+        for (
+                int i = 0; i < outputImage.width(); i++) {
+            for (int j = 0; j < outputImage.height(); j++) {
+                img_vec[i * outputImage.height() + j] = 0xFF << 24 | ((buffer.get() & 0xFF)) << 16 | ((buffer.get() & 0xFF) << 8) | ((buffer.get() & 0xFF));
+            }
+        }
+
+        glf.filter(img_vec, outputImage.width(), outputImage.height());
+        Bitmap bitmap1 = Bitmap.createBitmap(outputImage.width(), outputImage.height(), Bitmap.Config.ARGB_8888);
+        bitmap1.copyPixelsFromBuffer(IntBuffer.wrap(img_vec));
+        System.out.println("sharing");
+        Intent share = new Intent(Intent.ACTION_SEND);
+        share.setType("image/jpeg");
+        Bitmap icon = converter.convert(openconverter.convert(outputImage));
+        ContentValues values = new ContentValues();
+        values.put(MediaStore.Images.Media.TITLE, "title");
+        values.put(MediaStore.Images.Media.MIME_TYPE, "image/jpeg");
+        Uri uri = getContext().getContentResolver().insert(MediaStore.Images.Media.EXTERNAL_CONTENT_URI, values);
+        OutputStream outstream;
+        try {
+            outstream = getContext().getContentResolver().openOutputStream(uri);
+            icon.compress(Bitmap.CompressFormat.JPEG, 100, outstream);
+            outstream.close();
+        } catch (Exception e) {
+            System.err.println(e.toString());
+        }
+
+        share.putExtra(Intent.EXTRA_STREAM, uri);
+        Intent chooserIntent = Intent.createChooser(share, "Open With");
+        chooserIntent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+        getContext().getApplicationContext().startActivity(chooserIntent);
+    }
 }
 
 // ----------------------------------------------------------------------
@@ -451,6 +579,9 @@ class Preview extends SurfaceView implements SurfaceHolder.Callback {
     SurfaceHolder mHolder;
     Camera mCamera;
     Camera.PreviewCallback previewCallback;
+    int exifOrientation;
+    Integer sensorOrientation;
+    int deviceOrientation;
 
     Preview(Context context, Camera.PreviewCallback previewCallback) {
         super(context);
@@ -475,9 +606,11 @@ class Preview extends SurfaceView implements SurfaceHolder.Callback {
         // Surface will be destroyed when we return, so stop the preview.
         // Because the CameraDevice object is not a shared resource, it's very
         // important to release it when the activity is paused.
-        mCamera.stopPreview();
-        mCamera.release();
-        mCamera = null;
+        if (mCamera!=null) {
+            mCamera.stopPreview();
+            mCamera.release();
+            mCamera = null;
+        }
     }
 
     private Size getOptimalPreviewSize(List<Size> sizes, int w, int h) {
@@ -513,30 +646,67 @@ class Preview extends SurfaceView implements SurfaceHolder.Callback {
         return optimalSize;
     }
 
+    private static final SparseIntArray ORIENTATIONS = new SparseIntArray();
+
+    static {
+        ORIENTATIONS.append(Surface.ROTATION_0, 0);
+        ORIENTATIONS.append(Surface.ROTATION_90, 90);
+        ORIENTATIONS.append(Surface.ROTATION_180, 180);
+        ORIENTATIONS.append(Surface.ROTATION_270, 270);
+    }
+
+    public void surfaceChanged() {
+        surfaceChanged(getHolder(), 0, 320, 240);
+    }
+
     public void surfaceChanged(SurfaceHolder holder, int format, int w, int h) {
         // Now that the size is known, set up the camera parameters and begin
         // the preview.
         Camera.Parameters parameters = mCamera.getParameters();
         List<Size> sizes = parameters.getSupportedPreviewSizes();
-        Size optimalSize = getOptimalPreviewSize(sizes, 640, 480);
+        Size optimalSize = getOptimalPreviewSize(sizes, 320, 240);
 //        Size optimalSize = getOptimalPreviewSize(sizes, 0,0);
         parameters.setPreviewSize(optimalSize.width, optimalSize.height);
-        WindowManager wm = (WindowManager) getContext().getSystemService(Context.WINDOW_SERVICE);
-        int rotation = wm.getDefaultDisplay().getRotation();
-        rotation = FullscreenActivity.orientation;
+//        WindowManager wm = (WindowManager) getContext().getSystemService(Context.WINDOW_SERVICE);
+//        int rotation = wm.getDefaultDisplay().getRotation();
+//        rotation = FullscreenActivity.orientation;
         android.hardware.Camera.CameraInfo info =
                 new android.hardware.Camera.CameraInfo();
         android.hardware.Camera.getCameraInfo(FullscreenActivity.currentCameraId, info);
-        int result;
-        if (info.facing == Camera.CameraInfo.CAMERA_FACING_FRONT) {
-            result = (rotation) % 360;
-//            result = (360 - result) % 360;  // compensate the mirror
-        } else {  // back-facing
-            result = (info.orientation - rotation + 360) % 360;
+//        boolean landscape = this.getContext().getResources().getConfiguration().orientation == Configuration.ORIENTATION_LANDSCAPE;
+        CameraManager manager = (CameraManager) this.getContext().getSystemService(Context.CAMERA_SERVICE);
+        System.out.println("---------------------------");
+        final int deviceRotation = ((WindowManager) getContext().getSystemService(Context.WINDOW_SERVICE)).getDefaultDisplay().getRotation();
+        deviceOrientation = ORIENTATIONS.get(deviceRotation);
+//            Point displaySize = new Point();
+//            activity.getWindowManager().getDefaultDisplay().getSize(displaySize);
+
+        // Find the rotation of the device relative to the camera sensor's orientation.
+//            int totalRotation = sensorToDeviceRotation(mCharacteristics, deviceRotation);
+
+
+        // Get device orientation in degrees
+//            int deviceOrientation = ORIENTATIONS.get(deviceOrientation);
+
+        try {
+            for (String id : manager.getCameraIdList()) {
+                CameraCharacteristics characteristics;
+                characteristics = manager.getCameraCharacteristics(id);
+                if (Integer.parseInt(id) == FullscreenActivity.currentCameraId) {
+                    sensorOrientation = characteristics.get(CameraCharacteristics.SENSOR_ORIENTATION);
+                    System.out.println("------------------" + id + "\t" + sensorOrientation);
+                    if (manager.getCameraCharacteristics(id).get(CameraCharacteristics.LENS_FACING) == CameraCharacteristics.LENS_FACING_FRONT) {
+                        deviceOrientation -= deviceOrientation;
+                        sensorOrientation -= 90;
+                    }
+
+//                    System.out.println((sensorOrientation + deviceOrientation + 360) % 360);
+                }
+            }
+        } catch (CameraAccessException e) {
+            e.printStackTrace();
         }
-        parameters.setRotation(result);
         mCamera.setParameters(parameters);
-        FullscreenActivity.setCameraDisplayOrientation(FullscreenActivity.currentCameraId, mCamera);
         if (previewCallback != null) {
             mCamera.setPreviewCallbackWithBuffer(previewCallback);
             Size size = parameters.getPreviewSize();
@@ -544,7 +714,84 @@ class Preview extends SurfaceView implements SurfaceHolder.Callback {
             mCamera.addCallbackBuffer(data);
         }
         mCamera.startPreview();
-        mCamera.autoFocus(null);
-    }
+        try {
+            mCamera.autoFocus(null);
+        } catch (Exception e) {
+        }
+        FullscreenActivity.cameraRotation = (360 + sensorOrientation - deviceOrientation) % 360;
+        System.out.println("sensor:" + sensorOrientation + " device:" + deviceOrientation + " Setting camera rotation to:" + FullscreenActivity.cameraRotation);
+        mCamera.setDisplayOrientation(FullscreenActivity.cameraRotation);
+        /*mCamera.takePicture(new Camera.ShutterCallback() {
+                                @Override
+                                public void onShutter() {
 
+                                }
+
+                            }
+                , new Camera.PictureCallback() {
+                    @Override
+                    public void onPictureTaken(byte[] bytes, Camera camera) {
+
+
+                    }
+                }, new Camera.PictureCallback() {
+                    @Override
+                    public void onPictureTaken(byte[] imageData, Camera camera) {
+//                                BitmapFactory.Options opt=new BitmapFactory.Options();
+//                                Bitmap bm=BitmapFactory.decodeByteArray(data, 0, data.length,opt);
+                        try {
+                            // Extract metadata.
+                            Metadata metadata = ImageMetadataReader.readMetadata(new BufferedInputStream(new ByteArrayInputStream(imageData)), imageData.length);
+
+                            // Log each directory.
+                            for (Directory directory : metadata.getDirectories()) {
+                                Log.d("LOG", "Directory: " + directory.getName());
+
+                                // Log all errors.
+                                for (String error : directory.getErrors()) {
+                                    Log.d("LOG", "> error: " + error);
+                                }
+
+                                // Log all tags.
+                                for (Tag tag : directory.getTags()) {
+                                    Log.d("LOG", "> tag: " + tag.getTagName() + " = " + tag.getDescription());
+                                }
+                            }
+
+                            final ExifIFD0Directory exifIFD0Directory = metadata.getFirstDirectoryOfType(ExifIFD0Directory.class);
+                            if (exifIFD0Directory.containsTag(ExifIFD0Directory.TAG_ORIENTATION)) {
+                                exifOrientation = exifIFD0Directory.getInt(ExifIFD0Directory.TAG_ORIENTATION);
+                                System.out.println("-----------------orientation:" + exifOrientation);
+                            }
+                            FullscreenActivity.cameraRotation = 0;
+                            switch (exifOrientation) {
+                                case 1:
+                                    break;  // top left
+                                case 2:
+                                    break;  // top right
+                                case 3:
+                                    FullscreenActivity.cameraRotation = 180;//         bitmapMatrix.postRotate(180);                                               break;  // bottom right
+                                case 4:
+                                    FullscreenActivity.cameraRotation = 180;//         bitmapMatrix.postRotate(180);           bitmapMatrix.postScale(-1, 1);      break;  // bottom left
+                                case 5:
+                                    FullscreenActivity.cameraRotation = 90;//         bitmapMatrix.postRotate(90);            bitmapMatrix.postScale(-1, 1);      break;  // left top
+                                case 6:
+                                    FullscreenActivity.cameraRotation = 90;//         bitmapMatrix.postRotate(90);                                                break;  // right top
+                                case 7:
+                                    FullscreenActivity.cameraRotation = 270;//         bitmapMatrix.postRotate(270);           bitmapMatrix.postScale(-1, 1);      break;  // right bottom
+                                case 8:
+                                    FullscreenActivity.cameraRotation = 270;//         bitmapMatrix.postRotate(270);                                               break;  // left bottom
+                                default:
+                                    break;  // Unknown
+                            }
+
+                            *//* Work on exifOrientation *//*
+                        } catch (Exception e) {
+                            // TODO: handle exception
+                        }
+                        mCamera.startPreview();
+                    }
+                });
+*/
+    }
 }
