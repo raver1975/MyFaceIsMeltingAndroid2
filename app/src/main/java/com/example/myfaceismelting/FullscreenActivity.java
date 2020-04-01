@@ -269,7 +269,7 @@ class FaceView extends View implements Camera.PreviewCallback {
     public FaceView(FullscreenActivity context) throws IOException {
         super(context);
         this.preview = preview;
-        sf.setAmount(8f);
+        sf.setAmount(20f);
         sf.setTurbulence(1f);
         sf.setEdgeAction(TransformFilter.RGB_CLAMP);
 //        sf.setScale(10);
