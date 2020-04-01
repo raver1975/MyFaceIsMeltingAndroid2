@@ -62,6 +62,7 @@ public class FullscreenActivity extends Activity {
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
         requestWindowFeature(Window.FEATURE_NO_TITLE);
+
         getWindow().addFlags(WindowManager.LayoutParams.FLAG_FULLSCREEN);
 
         if (ContextCompat.checkSelfPermission(getApplicationContext(), android.Manifest.permission.CAMERA) != PackageManager.PERMISSION_GRANTED) {
@@ -156,6 +157,11 @@ public class FullscreenActivity extends Activity {
                         currentCameraId = Camera.CameraInfo.CAMERA_FACING_BACK;
                     }
                     prev.mCamera = prev.mCamera.open(currentCameraId);
+                    Camera.CameraInfo info = new Camera.CameraInfo();
+                    Camera.getCameraInfo(currentCameraId, info);
+                    if (info.canDisableShutterSound) {
+                        prev.mCamera.enableShutterSound(false);
+                    }
 
 //                    prev.mCamera.setDisplayOrientation(cameraRotation);
 
@@ -367,7 +373,7 @@ class FaceView extends View implements Camera.PreviewCallback {
         return rotateYUV420Degree180(yuv, imageWidth, imageHeight);
     }
 
-    synchronized void processImage(byte[] data, int width, int height) {
+    void processImage(byte[] data, int width, int height) {
         if (!enable || width == 0 || height == 0) return;
         int rotate = FullscreenActivity.cameraRotation;
         int hh = width;
@@ -419,6 +425,7 @@ class FaceView extends View implements Camera.PreviewCallback {
         cvSmooth(gray, gray, CV_MEDIAN, MEDIAN_BLUR_FILTER_SIZE, 0, 0, 0);
         cvLaplace(gray, edges, LAPLACIAN_FILTER_SIZE);
         cvThreshold(edges, edges, 80, 255, CV_THRESH_BINARY_INV);
+//        cvSmooth(edges,edges, CV_MEDIAN, 3, 3, 0, 0);
         outputImage = IplImage.create(image.cvSize(), image.depth(), image.nChannels());
         for (
                 int i = 0;
@@ -433,41 +440,46 @@ class FaceView extends View implements Camera.PreviewCallback {
     }
 
     @SuppressLint("WrongThread")
-    synchronized void processImage1(IplImage image, int height, int width) {
+    void processImage1(IplImage image, int height, int width) {
         int rotate = FullscreenActivity.cameraRotation;
         int hh = width;
         int ww = height;
         switch ((360 + rotate) % 360) {
             case 0:
+                Mat rotation_matrix = getRotationMatrix2D(new Point2f(ww / 2, hh / 2), 00, 1.0);
+                Mat ma = new Mat(image);
+                Mat ma1 = new Mat();
+                warpAffine(ma, ma1, rotation_matrix, new org.bytedeco.opencv.opencv_core.Size(ww, hh));
+                image = new IplImage(ma1).clone();
                 ww = width;
                 hh = height;
                 break;
             case 90:
+                rotation_matrix = getRotationMatrix2D(new Point2f(ww / 2, hh / 2), 90, 1.0);
+                ma = new Mat(image);
+                ma1 = new Mat();
+                warpAffine(ma, ma1, rotation_matrix, new org.bytedeco.opencv.opencv_core.Size(ww, hh));
                 hh = width;
                 ww = height;
-                Mat rotation_matrix = getRotationMatrix2D(new Point2f(ww / 2, hh / 2), 90, 1.0);
-                Mat ma = new Mat(image);
-                Mat ma1 = new Mat();
-                warpAffine(ma, ma1, rotation_matrix, new org.bytedeco.opencv.opencv_core.Size(image.width(), image.height()));
-                image = new IplImage(ma1);
+                image = new IplImage(ma1).clone();
                 break;
             case 180:
-                ww = width;
-                hh = height;
                 rotation_matrix = getRotationMatrix2D(new Point2f(ww / 2, hh / 2), 180, 1.0);
                 ma = new Mat(image);
                 ma1 = new Mat();
-                warpAffine(ma, ma1, rotation_matrix, new org.bytedeco.opencv.opencv_core.Size(image.width(), image.height()));
-                image = new IplImage(ma1);
+                warpAffine(ma, ma1, rotation_matrix, new org.bytedeco.opencv.opencv_core.Size(ww, hh));
+                image = new IplImage(ma1).clone();
+                ww = width;
+                hh = height;
                 break;
             case 270:
-                hh = width;
-                ww = height;
                 rotation_matrix = getRotationMatrix2D(new Point2f(ww / 2, hh / 2), 270, 1.0);
                 ma = new Mat(image);
                 ma1 = new Mat();
-                warpAffine(ma, ma1, rotation_matrix, new org.bytedeco.opencv.opencv_core.Size(image.width(), image.height()));
-                image = new IplImage(ma1);
+                warpAffine(ma, ma1, rotation_matrix, new org.bytedeco.opencv.opencv_core.Size(ww, hh));
+                image = new IplImage(ma1).clone();
+                hh = width;
+                ww = height;
                 break;
         }
         width = ww;
@@ -495,7 +507,7 @@ class FaceView extends View implements Camera.PreviewCallback {
         cvLaplace(gray, edges, LAPLACIAN_FILTER_SIZE);
         cvThreshold(edges, edges, 80, 255, CV_THRESH_BINARY_INV);
         outputImage = IplImage.create(image.cvSize(), image.depth(), image.nChannels());
-        cvCopy(image,temp);
+        cvCopy(image, temp);
         for (
                 int i = 0;
                 i < repetitions; i++) {
@@ -521,7 +533,7 @@ class FaceView extends View implements Camera.PreviewCallback {
         System.out.println("sharing");
         Intent share = new Intent(Intent.ACTION_SEND);
         share.setType("image/jpeg");
-        Bitmap icon = converter.convert(openconverter.convert(outputImage));
+//        Bitmap icon = converter.convert(openconverter.convert(outputImage));
         ContentValues values = new ContentValues();
         values.put(MediaStore.Images.Media.TITLE, "title");
         values.put(MediaStore.Images.Media.MIME_TYPE, "image/jpeg");
@@ -529,7 +541,7 @@ class FaceView extends View implements Camera.PreviewCallback {
         OutputStream outstream;
         try {
             outstream = getContext().getContentResolver().openOutputStream(uri);
-            icon.compress(Bitmap.CompressFormat.JPEG, 100, outstream);
+            bitmap1.compress(Bitmap.CompressFormat.JPEG, 100, outstream);
             outstream.close();
         } catch (Exception e) {
             System.err.println(e.toString());
@@ -656,6 +668,11 @@ class Preview extends SurfaceView implements SurfaceHolder.Callback {
 
     public void surfaceCreated(SurfaceHolder holder) {
         mCamera = Camera.open(FullscreenActivity.currentCameraId);
+        Camera.CameraInfo info = new Camera.CameraInfo();
+        Camera.getCameraInfo(FullscreenActivity.currentCameraId, info);
+        if (info.canDisableShutterSound) {
+            mCamera.enableShutterSound(false);
+        }
         try {
             mCamera.setPreviewDisplay(holder);
         } catch (IOException exception) {
@@ -726,10 +743,13 @@ class Preview extends SurfaceView implements SurfaceHolder.Callback {
         // Now that the size is known, set up the camera parameters and begin
         // the preview.
         Camera.Parameters parameters = mCamera.getParameters();
-        List<Size> sizes = parameters.getSupportedPreviewSizes();
-        Size optimalSize = getOptimalPreviewSize(sizes, 320, 240);
+        List<Size> sizesPrev = parameters.getSupportedPreviewSizes();
+        List<Size> sizesCam = parameters.getSupportedPictureSizes();
+        Size optimalSizePrev = getOptimalPreviewSize(sizesPrev, 320, 240);
+        Size optimalSizeCam = getOptimalPreviewSize(sizesPrev, 1920, 960);
 //        Size optimalSize = getOptimalPreviewSize(sizes, 0,0);
-        parameters.setPreviewSize(optimalSize.width, optimalSize.height);
+        parameters.setPreviewSize(optimalSizePrev.width, optimalSizePrev.height);
+        parameters.setPictureSize(optimalSizeCam.width, optimalSizeCam.height);
 //        WindowManager wm = (WindowManager) getContext().getSystemService(Context.WINDOW_SERVICE);
 //        int rotation = wm.getDefaultDisplay().getRotation();
 //        rotation = FullscreenActivity.orientation;

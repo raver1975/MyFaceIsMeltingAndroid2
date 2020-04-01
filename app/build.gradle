@@ -91,6 +91,8 @@ android.applicationVariants.all { variant ->
 }
 
 dependencies {
+//    implementation 'com.github.MyRobotLab:myrobotlab:master-SNAPSHOT'
+
     implementation fileTree(dir: 'libs', include: ['*.jar'])
     implementation 'androidx.appcompat:appcompat:1.1.0'
     implementation 'com.android.support:multidex:1.0.3'
