@@ -1,5 +1,6 @@
 package com.example.myfaceismelting;
 
+import android.Manifest;
 import android.annotation.SuppressLint;
 import android.app.Activity;
 import android.app.AlertDialog;
@@ -53,6 +54,7 @@ public class FullscreenActivity extends Activity {
 
 
     public static int cameraRotation;
+    public static ProgressBar pbar;
     private Preview mPreview;
     static int currentCameraId;
 
@@ -61,8 +63,12 @@ public class FullscreenActivity extends Activity {
         super.onCreate(savedInstanceState);
         requestWindowFeature(Window.FEATURE_NO_TITLE);
         getWindow().addFlags(WindowManager.LayoutParams.FLAG_FULLSCREEN);
+
         if (ContextCompat.checkSelfPermission(getApplicationContext(), android.Manifest.permission.CAMERA) != PackageManager.PERMISSION_GRANTED) {
             ActivityCompat.requestPermissions(FullscreenActivity.this, new String[]{android.Manifest.permission.CAMERA}, 50);
+        }
+        if (ContextCompat.checkSelfPermission(getApplicationContext(), Manifest.permission.WRITE_EXTERNAL_STORAGE) != PackageManager.PERMISSION_GRANTED) {
+            ActivityCompat.requestPermissions(FullscreenActivity.this, new String[]{Manifest.permission.WRITE_EXTERNAL_STORAGE}, 50);
         }
         try {
             final FrameLayout layout = new FrameLayout(this);
@@ -80,9 +86,12 @@ public class FullscreenActivity extends Activity {
             faceView.setOnClickListener(new Button.OnClickListener() {
                 @Override
                 public void onClick(View view) {
-                    new Handler(Looper.getMainLooper()).post(new Runnable() {
+                    pbar.setVisibility(View.VISIBLE);
+                    new Thread(new Runnable() {
+                        //                                            new Handler(Looper.getMainLooper()).post(new Runnable() {
                         @Override
                         public void run() {
+
                             mPreview.mCamera.takePicture(new Camera.ShutterCallback() {
                                                              @Override
                                                              public void onShutter() {
@@ -99,28 +108,36 @@ public class FullscreenActivity extends Activity {
                                             boolean enableMemory = faceView.enable;
                                             faceView.enable = true;
                                             Mat ma = new Mat(bytes);
-                                            faceView.image = new IplImage(imdecode(ma, 1));
-                                            faceView.processImage(null, camera.getParameters().getPictureSize().width, camera.getParameters().getPictureSize().height);
+                                            faceView.processImage1(new IplImage(imdecode(ma, -1)), camera.getParameters().getPictureSize().width, camera.getParameters().getPictureSize().height);
                                             faceView.enable = enableMemory;
 //                                            System.out.println("2" + faceView.outputImage);
                                             System.out.println("snapped");
-                                            faceView.shareImage();
 
                                             mPreview.mCamera.startPreview();
+                                            new Handler().post(new Runnable() {
+                                                @Override
+                                                public void run() {
+                                                    pbar.setVisibility(View.INVISIBLE);
+                                                }
+                                            });
+
                                         }
                                     });
 
+
                         }
-                    });
+                    }).start();
 
                 }
-
             });
 
             ToggleButton toggleCam = new ToggleButton(this);
-            toggleCam.setText("BACK");
-            toggleCam.setTextOn("FRONT");
-            toggleCam.setTextOff("BACK");
+//            toggleCam.setText("FRONT");
+//            toggleCam.setTextOn("BACK");
+//            toggleCam.setTextOff("FRONT");
+            toggleCam.setText("FRONT");
+//            toggleCam.setTextOn("FRONT");
+//            toggleCam.setTextOff("BACK");
             toggleCam.setOnCheckedChangeListener(new CompoundButton.OnCheckedChangeListener() {
                 public void onCheckedChanged(CompoundButton buttonView, boolean isChecked) {
                     mPreview.mCamera.stopPreview();
@@ -162,6 +179,9 @@ public class FullscreenActivity extends Activity {
             });
 
             ToggleButton toggleOn = new ToggleButton(this);
+            toggleOn.setText("MELT");
+//            toggleOn.setTextOn("MELT");
+//            toggleOn.setTextOff("OFF");
             toggleOn.setOnCheckedChangeListener(new CompoundButton.OnCheckedChangeListener() {
                 public void onCheckedChanged(CompoundButton buttonView, boolean isChecked) {
                     if (isChecked) {
@@ -181,10 +201,19 @@ public class FullscreenActivity extends Activity {
 //            toggle
             RelativeLayout.LayoutParams params1 = new RelativeLayout.LayoutParams(RelativeLayout.LayoutParams.WRAP_CONTENT, RelativeLayout.LayoutParams.WRAP_CONTENT);
             params1.addRule(RelativeLayout.ALIGN_PARENT_TOP, RelativeLayout.TRUE);
+            params1.addRule(RelativeLayout.ALIGN_PARENT_LEFT, RelativeLayout.TRUE);
             RelativeLayout.LayoutParams params2 = new RelativeLayout.LayoutParams(RelativeLayout.LayoutParams.WRAP_CONTENT, RelativeLayout.LayoutParams.WRAP_CONTENT);
-            params2.addRule(RelativeLayout.ALIGN_PARENT_BOTTOM, RelativeLayout.TRUE);
+            params2.addRule(RelativeLayout.ALIGN_PARENT_TOP, RelativeLayout.TRUE);
+            params2.addRule(RelativeLayout.ALIGN_PARENT_RIGHT, RelativeLayout.TRUE);
+            RelativeLayout.LayoutParams params3 = new RelativeLayout.LayoutParams(RelativeLayout.LayoutParams.WRAP_CONTENT, RelativeLayout.LayoutParams.WRAP_CONTENT);
+            params3.addRule(RelativeLayout.CENTER_IN_PARENT, RelativeLayout.CENTER_IN_PARENT);
+            pbar = new ProgressBar(this);
+            pbar.setMax(10);
+            pbar.setVisibility(View.INVISIBLE);
+            pbar.setLayoutParams(params3);
             relativeLayout1.addView(toggleOn);
             relativeLayout1.addView(toggleCam);
+            relativeLayout1.addView(pbar);
             toggleOn.setLayoutParams(params1);
             toggleCam.setLayoutParams(params2);
 
@@ -192,6 +221,7 @@ public class FullscreenActivity extends Activity {
             layout.addView(mPreview);
             layout.addView(faceView);
             layout.addView(relativeLayout1);
+
             setContentView(layout);
         } catch (IOException e) {
             e.printStackTrace();
@@ -205,14 +235,15 @@ public class FullscreenActivity extends Activity {
 class FaceView extends View implements Camera.PreviewCallback {
 
     public boolean enable;
+    boolean pictureLockTemp;
     IplImage image;
 
-    int LAPLACIAN_FILTER_SIZE = 5;
-    int MEDIAN_BLUR_FILTER_SIZE = 7;
-    int repetitions = 7; // Repetitions for strong cartoon effect.
-    int ksize = 1; // Filter size. Has a large effect on speed.
-    double sigmaColor = 9; // Filter color strength.
-    double sigmaSpace = 7; // Spatial strength. Affects speed.
+    private static int LAPLACIAN_FILTER_SIZE = 5;
+    static int MEDIAN_BLUR_FILTER_SIZE = 7;
+    static int repetitions = 7; // Repetitions for strong cartoon effect.
+    static int ksize = 1; // Filter size. Has a large effect on speed.
+    static double sigmaColor = 9; // Filter color strength.
+    static double sigmaSpace = 7; // Spatial strength. Affects speed.
     private IplImage gray;
     private IplImage edges;
     IplImage outputImage;
@@ -226,7 +257,6 @@ class FaceView extends View implements Camera.PreviewCallback {
     AndroidFrameConverter androidFrameConverter = new AndroidFrameConverter();
     Paint paint = new Paint();
     Preview preview;
-    private IplImage temp;
 //    int zwidth = 640;
 //    int zheight = 480;
 
@@ -263,7 +293,7 @@ class FaceView extends View implements Camera.PreviewCallback {
 
     }
 
-    private byte[] rotateYUV420Degree90(byte[] data, int imageWidth, int imageHeight) {
+    private static byte[] rotateYUV420Degree90(byte[] data, int imageWidth, int imageHeight) {
         byte[] yuv = new byte[imageWidth * imageHeight * 3 / 2];
         // Rotate the Y luma
         int i = 0;
@@ -339,81 +369,41 @@ class FaceView extends View implements Camera.PreviewCallback {
 
     synchronized void processImage(byte[] data, int width, int height) {
         if (!enable || width == 0 || height == 0) return;
-        // First, downsample our image and convert it into a grayscale IplImage
         int rotate = FullscreenActivity.cameraRotation;
-
         int hh = width;
         int ww = height;
         switch ((360 + rotate) % 360) {
             case 0:
-//                        data = rotateYUV420Degree270(data, preview.mCamera.getParameters().getPreviewSize().width, preview.mCamera.getParameters().getPreviewSize().height);
-//                        data = rotateYUV420Degree180(data, preview.mCamera.getParameters().getPreviewSize().width, preview.mCamera.getParameters().getPreviewSize().height);
                 ww = width;
                 hh = height;
                 break;
             case 90:
                 hh = width;
                 ww = height;
-                if (data != null) {
-                    data = rotateYUV420Degree90(data, preview.mCamera.getParameters().getPreviewSize().width, preview.mCamera.getParameters().getPreviewSize().height);
-                } else {
-                    Mat rotation_matrix = getRotationMatrix2D(new Point2f(ww / 2, hh / 2), 90, 1.0);
-                    Mat ma = new Mat(image);
-                    Mat ma1 = new Mat();
-                    warpAffine(ma, ma1, rotation_matrix, new org.bytedeco.opencv.opencv_core.Size(image.width(), image.height()));
-                    image = new IplImage(ma1);
-                }
+                data = rotateYUV420Degree90(data, width, height);
                 break;
             case 180:
                 ww = width;
                 hh = height;
-                if (data != null) {
-                    data = rotateYUV420Degree180(data, preview.mCamera.getParameters().getPreviewSize().width, preview.mCamera.getParameters().getPreviewSize().height);
-                } else {
-                    Mat rotation_matrix = getRotationMatrix2D(new Point2f(ww / 2, hh / 2), 180, 1.0);
-                    Mat ma = new Mat(image);
-                    Mat ma1 = new Mat();
-                    warpAffine(ma, ma1, rotation_matrix, new org.bytedeco.opencv.opencv_core.Size(image.width(), image.height()));
-                    image = new IplImage(ma1);
-                }
+                data = rotateYUV420Degree180(data, width, height);
 
                 break;
             case 270:
                 hh = width;
                 ww = height;
-                if (data != null) {
-                    data = rotateYUV420Degree270(data, preview.mCamera.getParameters().getPreviewSize().width, preview.mCamera.getParameters().getPreviewSize().height);
-                } else {
-                    Mat rotation_matrix = getRotationMatrix2D(new Point2f(ww / 2, hh / 2), 270, 1.0);
-                    Mat ma = new Mat(image);
-                    Mat ma1 = new Mat();
-                    warpAffine(ma, ma1, rotation_matrix, new org.bytedeco.opencv.opencv_core.Size(image.width(), image.height()));
-                    image = new IplImage(ma1);
-                }
+                data = rotateYUV420Degree270(data, width, height);
                 break;
         }
         width = ww;
         height = hh;
-
-        if (data != null) {
-            if (image == null || image.width() != width || image.height() != height) {
-                gray = IplImage.create(width, height, IPL_DEPTH_8U, 1);
-                edges = IplImage.create(gray.cvSize(), gray.depth(), gray.nChannels());
-                outputImage = IplImage.create(width, height, IPL_DEPTH_8U, 3);
-                temp = IplImage.create(width, height, IPL_DEPTH_8U, 3);
-            }
-            image = openconverter.convertToIplImage(converter.convert(data, width, height));
-        } else {
-            gray = IplImage.create(image.cvSize(), image.depth(), 1);
+        if (image == null || image.width() != width || image.height() != height) {
+            gray = IplImage.create(width, height, IPL_DEPTH_8U, 1);
             edges = IplImage.create(gray.cvSize(), gray.depth(), gray.nChannels());
-            outputImage = IplImage.create(image.cvSize(), image.depth(), 3);
-            temp = IplImage.create(image.cvSize(), image.depth(), image.nChannels());
+            outputImage = IplImage.create(width, height, IPL_DEPTH_8U, 3);
         }
-
-
+        image = openconverter.convertToIplImage(converter.convert(data, width, height));
         ByteBuffer buffer = image.getByteBuffer();
         int[] img_vec = new int[image.width() * image.height()];
-//
         for (
                 int i = 0; i < image.width(); i++) {
             for (int j = 0; j < image.height(); j++) {
@@ -424,8 +414,8 @@ class FaceView extends View implements Camera.PreviewCallback {
         int[] swim1Ints3 = sf1.filter(swim1Ints2, image.width(), image.height());
         Bitmap bitmap1 = Bitmap.createBitmap(image.width(), image.height(), Bitmap.Config.ARGB_8888);
         bitmap1.copyPixelsFromBuffer(IntBuffer.wrap(swim1Ints3));
-        cvCvtColor(openconverter.convertToIplImage(androidFrameConverter.convert(bitmap1)), temp, CV_RGBA2BGR);
-        cvCvtColor(temp, gray, CV_BGR2GRAY);
+        cvCvtColor(openconverter.convertToIplImage(androidFrameConverter.convert(bitmap1)), image, CV_RGBA2BGR);
+        cvCvtColor(image, gray, CV_BGR2GRAY);
         cvSmooth(gray, gray, CV_MEDIAN, MEDIAN_BLUR_FILTER_SIZE, 0, 0, 0);
         cvLaplace(gray, edges, LAPLACIAN_FILTER_SIZE);
         cvThreshold(edges, edges, 80, 255, CV_THRESH_BINARY_INV);
@@ -433,14 +423,122 @@ class FaceView extends View implements Camera.PreviewCallback {
         for (
                 int i = 0;
                 i < repetitions; i++) {
-            cvSmooth(temp, outputImage, CV_BILATERAL, ksize, 0, sigmaColor, sigmaSpace);
+            cvSmooth(image, outputImage, CV_BILATERAL, ksize, 0, sigmaColor, sigmaSpace);
             cvSmooth(outputImage, image, CV_BILATERAL, ksize, 0, sigmaColor, sigmaSpace);
         }
-
         cvZero(outputImage);
         cvCopy(image, outputImage, edges);
         sf.setTime(t1 += .02f);
         sf1.setTime(t2 += .02f);
+    }
+
+    @SuppressLint("WrongThread")
+    synchronized void processImage1(IplImage image, int height, int width) {
+        int rotate = FullscreenActivity.cameraRotation;
+        int hh = width;
+        int ww = height;
+        switch ((360 + rotate) % 360) {
+            case 0:
+                ww = width;
+                hh = height;
+                break;
+            case 90:
+                hh = width;
+                ww = height;
+                Mat rotation_matrix = getRotationMatrix2D(new Point2f(ww / 2, hh / 2), 90, 1.0);
+                Mat ma = new Mat(image);
+                Mat ma1 = new Mat();
+                warpAffine(ma, ma1, rotation_matrix, new org.bytedeco.opencv.opencv_core.Size(image.width(), image.height()));
+                image = new IplImage(ma1);
+                break;
+            case 180:
+                ww = width;
+                hh = height;
+                rotation_matrix = getRotationMatrix2D(new Point2f(ww / 2, hh / 2), 180, 1.0);
+                ma = new Mat(image);
+                ma1 = new Mat();
+                warpAffine(ma, ma1, rotation_matrix, new org.bytedeco.opencv.opencv_core.Size(image.width(), image.height()));
+                image = new IplImage(ma1);
+                break;
+            case 270:
+                hh = width;
+                ww = height;
+                rotation_matrix = getRotationMatrix2D(new Point2f(ww / 2, hh / 2), 270, 1.0);
+                ma = new Mat(image);
+                ma1 = new Mat();
+                warpAffine(ma, ma1, rotation_matrix, new org.bytedeco.opencv.opencv_core.Size(image.width(), image.height()));
+                image = new IplImage(ma1);
+                break;
+        }
+        width = ww;
+        height = hh;
+        IplImage gray = IplImage.create(image.cvSize(), image.depth(), 1);
+        IplImage edges = IplImage.create(gray.cvSize(), gray.depth(), gray.nChannels());
+        IplImage outputImage = IplImage.create(image.cvSize(), image.depth(), 3);
+        IplImage temp = IplImage.create(image.cvSize(), image.depth(), 3);
+
+        ByteBuffer buffer = image.getByteBuffer();
+        int[] img_vec = new int[image.width() * image.height()];
+        for (
+                int i = 0; i < image.width(); i++) {
+            for (int j = 0; j < image.height(); j++) {
+                img_vec[i * image.height() + j] = 0xFF << 24 | ((buffer.get() & 0xFF)) << 16 | ((buffer.get() & 0xFF) << 8) | ((buffer.get() & 0xFF));
+            }
+        }
+        int[] swim1Ints2 = sf.filter(img_vec, image.width(), image.height());
+        int[] swim1Ints3 = sf1.filter(swim1Ints2, image.width(), image.height());
+        Bitmap bitmap1 = Bitmap.createBitmap(image.width(), image.height(), Bitmap.Config.ARGB_8888);
+        bitmap1.copyPixelsFromBuffer(IntBuffer.wrap(swim1Ints3));
+        cvCvtColor(openconverter.convertToIplImage(androidFrameConverter.convert(bitmap1)), image, CV_RGBA2BGR);
+        cvCvtColor(image, gray, CV_BGR2GRAY);
+        cvSmooth(gray, gray, CV_MEDIAN, MEDIAN_BLUR_FILTER_SIZE, 0, 0, 0);
+        cvLaplace(gray, edges, LAPLACIAN_FILTER_SIZE);
+        cvThreshold(edges, edges, 80, 255, CV_THRESH_BINARY_INV);
+        outputImage = IplImage.create(image.cvSize(), image.depth(), image.nChannels());
+        cvCopy(image,temp);
+        for (
+                int i = 0;
+                i < repetitions; i++) {
+            cvSmooth(temp, outputImage, CV_BILATERAL, ksize, 0, sigmaColor, sigmaSpace);
+            cvSmooth(outputImage, temp, CV_BILATERAL, ksize, 0, sigmaColor, sigmaSpace);
+        }
+        cvZero(outputImage);
+        cvCopy(temp, outputImage, edges);
+        sf.setTime(t1 += .02f);
+        sf1.setTime(t2 += .02f);
+        ByteBuffer buffer1 = outputImage.getByteBuffer();
+        img_vec = new int[outputImage.width() * outputImage.height()];
+        for (
+                int i = 0; i < outputImage.width(); i++) {
+            for (int j = 0; j < outputImage.height(); j++) {
+                img_vec[i * outputImage.height() + j] = 0xFF << 24 | ((buffer1.get() & 0xFF)) << 16 | ((buffer1.get() & 0xFF) << 8) | ((buffer1.get() & 0xFF));
+            }
+        }
+
+        glf.filter(img_vec, outputImage.width(), outputImage.height());
+        bitmap1 = Bitmap.createBitmap(outputImage.width(), outputImage.height(), Bitmap.Config.ARGB_8888);
+        bitmap1.copyPixelsFromBuffer(IntBuffer.wrap(img_vec));
+        System.out.println("sharing");
+        Intent share = new Intent(Intent.ACTION_SEND);
+        share.setType("image/jpeg");
+        Bitmap icon = converter.convert(openconverter.convert(outputImage));
+        ContentValues values = new ContentValues();
+        values.put(MediaStore.Images.Media.TITLE, "title");
+        values.put(MediaStore.Images.Media.MIME_TYPE, "image/jpeg");
+        Uri uri = getContext().getContentResolver().insert(MediaStore.Images.Media.EXTERNAL_CONTENT_URI, values);
+        OutputStream outstream;
+        try {
+            outstream = getContext().getContentResolver().openOutputStream(uri);
+            icon.compress(Bitmap.CompressFormat.JPEG, 100, outstream);
+            outstream.close();
+        } catch (Exception e) {
+            System.err.println(e.toString());
+        }
+
+        share.putExtra(Intent.EXTRA_STREAM, uri);
+        Intent chooserIntent = Intent.createChooser(share, "Open With");
+        chooserIntent.addFlags(FLAG_ACTIVITY_NEW_TASK);
+        getContext().getApplicationContext().startActivity(chooserIntent);
     }
 
 
@@ -535,42 +633,7 @@ class FaceView extends View implements Camera.PreviewCallback {
         this.invalidate();
     }
 
-    @SuppressLint("WrongThread")
-    public synchronized void shareImage() {
-        ByteBuffer buffer = outputImage.getByteBuffer();
-        int[] img_vec = new int[outputImage.width() * outputImage.height()];
-        for (
-                int i = 0; i < outputImage.width(); i++) {
-            for (int j = 0; j < outputImage.height(); j++) {
-                img_vec[i * outputImage.height() + j] = 0xFF << 24 | ((buffer.get() & 0xFF)) << 16 | ((buffer.get() & 0xFF) << 8) | ((buffer.get() & 0xFF));
-            }
-        }
 
-        glf.filter(img_vec, outputImage.width(), outputImage.height());
-        Bitmap bitmap1 = Bitmap.createBitmap(outputImage.width(), outputImage.height(), Bitmap.Config.ARGB_8888);
-        bitmap1.copyPixelsFromBuffer(IntBuffer.wrap(img_vec));
-        System.out.println("sharing");
-        Intent share = new Intent(Intent.ACTION_SEND);
-        share.setType("image/jpeg");
-        Bitmap icon = converter.convert(openconverter.convert(outputImage));
-        ContentValues values = new ContentValues();
-        values.put(MediaStore.Images.Media.TITLE, "title");
-        values.put(MediaStore.Images.Media.MIME_TYPE, "image/jpeg");
-        Uri uri = getContext().getContentResolver().insert(MediaStore.Images.Media.EXTERNAL_CONTENT_URI, values);
-        OutputStream outstream;
-        try {
-            outstream = getContext().getContentResolver().openOutputStream(uri);
-            icon.compress(Bitmap.CompressFormat.JPEG, 100, outstream);
-            outstream.close();
-        } catch (Exception e) {
-            System.err.println(e.toString());
-        }
-
-        share.putExtra(Intent.EXTRA_STREAM, uri);
-        Intent chooserIntent = Intent.createChooser(share, "Open With");
-        chooserIntent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
-        getContext().getApplicationContext().startActivity(chooserIntent);
-    }
 }
 
 // ----------------------------------------------------------------------
@@ -606,7 +669,7 @@ class Preview extends SurfaceView implements SurfaceHolder.Callback {
         // Surface will be destroyed when we return, so stop the preview.
         // Because the CameraDevice object is not a shared resource, it's very
         // important to release it when the activity is paused.
-        if (mCamera!=null) {
+        if (mCamera != null) {
             mCamera.stopPreview();
             mCamera.release();
             mCamera = null;
